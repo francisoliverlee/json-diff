@@ -251,3 +251,105 @@ export function summarize(rootNode) {
   walk(rootNode);
   return { added, removed, changed, same };
 }
+
+/**
+ * 收集差异 key 的全路径列表，按状态分类。
+ * 全路径规则：对象 key 用 ".key"，数组下标用 "[i]"，主键模式用 "[pk=value]"。
+ * 每个最终 value 差异（含整块 added/removed 的对象/数组）算 1 处。
+ * @returns { added:[], removed:[], changed:[] }
+ *   每项为 { path, depth, group, status, left, right }
+ */
+export function collectDiffPaths(rootNode) {
+  const result = { added: [], removed: [], changed: [] };
+
+  // 拼接子节点路径段
+  function joinPath(base, node, parentIsArray) {
+    const key = node.key;
+    if (parentIsArray) {
+      // 主键模式 key 形如 "pk=value"
+      if (typeof key === 'string' && key.includes('=')) return `${base}[${key}]`;
+      return `${base}[${key}]`;
+    }
+    return base ? `${base}.${key}` : String(key);
+  }
+
+  // group：用于按「父路径」聚合倒排展示，取去掉最后一段后的路径（无则为根）
+  function groupOf(path) {
+    const m = path.match(/^(.*)(\.[^.\[\]]+|\[[^\]]*\])$/);
+    return m && m[1] ? m[1] : '(根)';
+  }
+
+  function walk(node, path, parentIsArray) {
+    const isLeafValue = node.type === 'value';
+    const isWholeContainer = (node.type === 'object' || node.type === 'array')
+      && (node.status === 'added' || node.status === 'removed');
+
+    if (isLeafValue || isWholeContainer) {
+      const fullPath = path || '(根)';
+      const item = {
+        path: fullPath,
+        depth: (fullPath.match(/[.\[]/g) || []).length,
+        group: groupOf(fullPath),
+        status: node.status,
+        left: node.left,
+        right: node.right,
+      };
+      if (node.status === 'added') result.added.push(item);
+      else if (node.status === 'removed') result.removed.push(item);
+      else if (node.status === 'changed') result.changed.push(item);
+      return;
+    }
+
+    // 容器节点继续向下递归
+    (node.children || []).forEach(c => {
+      const childPath = joinPath(path, c, node.type === 'array');
+      walk(c, childPath, node.type === 'array');
+    });
+  }
+
+  // 根节点本身不计入路径前缀
+  (rootNode.children || []).forEach(c => {
+    const p = joinPath('', c, rootNode.type === 'array');
+    walk(c, p, rootNode.type === 'array');
+  });
+
+  return result;
+}
+
+/**
+ * 提取一条全路径的「最终 key」名（去掉前缀）。
+ * 规则：
+ *   - 取最后一段；若最后一段是数组下标 [i] 或主键 [pk=v]，则回退到其前面的字段名。
+ *   - 例：a.b.c -> c ; team[id=1].role -> role ; scores[3] -> scores ;
+ *        [0] -> (根数组项) ; obj.list[2] -> list
+ */
+export function finalKeyOf(path) {
+  if (!path || path === '(根)') return '(根)';
+  // 去掉末尾的若干个 [..] 片段，定位到最后的字段名
+  let p = path;
+  // 若以 [..] 结尾（数组下标/主键），去掉它们
+  let stripped = p.replace(/(\[[^\]]*\])+$/,'');
+  if (stripped === '') {
+    // 整条都是 [..]（如 "[0]" 或 "[id=1]"），属于根数组项
+    return '(根数组项)';
+  }
+  const seg = stripped.split('.');
+  return seg[seg.length - 1] || stripped;
+}
+
+/**
+ * 将 collectDiffPaths 的某一类别列表，按 key 维度聚合计数。
+ * @param {Array} list  diffPaths[type]
+ * @param {boolean} stripPrefix true=按最终 key 聚合；false=按完整路径聚合
+ * @returns Array<{ key, count }>  按 count 倒序、key 升序
+ */
+export function aggregateByKey(list, stripPrefix = true) {
+  const map = new Map();
+  (list || []).forEach(it => {
+    const k = stripPrefix ? finalKeyOf(it.path) : it.path;
+    map.set(k, (map.get(k) || 0) + 1);
+  });
+  return Array.from(map.entries())
+    .map(([key, count]) => ({ key, count }))
+    .sort((a, b) => (b.count - a.count) || a.key.localeCompare(b.key));
+}

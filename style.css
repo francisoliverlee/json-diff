@@ -52,3 +52,13 @@ textarea::-webkit-scrollbar-thumb:hover {
   from { opacity: 0; transform: translateY(6px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* 差异结果区全屏态：铺满视口、可滚动、白底 */
+#diffResult:fullscreen,
+#diffResult.fs-active {
+  width: 100vw;
+  height: 100vh;
+  max-height: 100vh;
+  overflow: auto;
+  background: #ffffff;
+}

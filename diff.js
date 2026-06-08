@@ -254,7 +254,8 @@ function diffArray(key, left, right, opts, path) {
     }
   }
 
-  const status = children.length && children.every(c => c.status === 'same') && left.length === right.length
+  // 双方长度相同且所有子节点都相同（含双方均为空数组）视为相同
+  const status = left.length === right.length && children.every(c => c.status === 'same')
     ? 'same' : 'parent';
 
   return {
@@ -316,7 +317,7 @@ function diffArrayByKey(key, left, right, opts, elemPath, pk) {
     }
   }
 
-  const status = children.length && children.every(c => c.status === 'same') && left.length === right.length
+  const status = left.length === right.length && children.every(c => c.status === 'same')
     ? 'same' : 'parent';
 
   return {

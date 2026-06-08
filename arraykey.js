@@ -148,7 +148,7 @@ export function renderKeyChooser(listEl, arrays, keyMap, onChange) {
 
     const hasSample = a.fields.length && a.sample;
     return `
-      <div class="key-array-block border border-slate-200 rounded-lg overflow-hidden" data-path="${a.path}">
+      <div class="key-array-block border border-slate-200 rounded-lg overflow-hidden transition-all duration-300" data-path="${a.path}" data-arr-index="${idx}" id="arrCard${idx}">
         <div class="flex items-center gap-2 px-3 py-2 bg-slate-50 border-b border-slate-200">
           <i class="ri-brackets-line text-indigo-500"></i>
           <span class="font-mono text-sm text-slate-700 break-all">${a.label}</span>

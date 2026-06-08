@@ -1,6 +1,6 @@
 // main.js —— 主入口：分步骤向导 + 对比与渲染
 import { diffJSON } from './diff.js';
-import { renderDiff, summarize } from './render.js';
+import { renderDiff, summarize, collectDiffPaths, aggregateByKey } from './render.js';
 import { scanArrayKeys, resolveKeyMap, renderKeyChooser } from './arraykey.js';
 
 const $ = (id) => document.getElementById(id);
@@ -10,16 +10,74 @@ const elRight = $('jsonRight');
 const elResult = $('diffResult');
 const elStatLeft = $('statLeft');
 const elStatRight = $('statRight');
-const elSummary = $('summaryBar');
+const elLegend = $('legendBar');
+
+// 左右两侧选择的文件名（路径/来源），用于展示与持久化
+let fileNames = { left: '', right: '' };
 
 // ---------- 本地持久化（localStorage） ----------
 const LS_KEY = 'json-diff-state-v1';
-const OPT_IDS = ['optIgnoreCase', 'optIgnoreTime', 'optHideSame', 'optCollapseAll'];
+// 按「文件内容指纹」分桶存储主键映射：{ 指纹: { 数组路径: 主键 } }
+const LS_KEYSTORE = 'json-diff-arraykeys-v1';
+const OPT_IDS = ['optIgnoreCase', 'optIgnoreTime', 'optHideSame', 'optCollapseAll', 'optStripPrefix'];
 
 // 各对象数组路径 -> 选中的对比主键
 let arrayKeyMap = {};
 // 最近一次扫描到的对象数组列表
 let detectedArrays = [];
+
+// 计算字符串的简易哈希（djb2），用作文件内容指纹
+function hashText(str) {
+  let h = 5381;
+  for (let i = 0; i < str.length; i++) {
+    h = ((h << 5) + h + str.charCodeAt(i)) | 0;
+  }
+  return (h >>> 0).toString(36);
+}
+
+// 基于左右两侧 JSON 文本生成「这组文件」的唯一指纹
+// 规范化：解析成对象后再 stringify，忽略缩进/空白差异，确保内容相同即指纹相同
+function currentFileFingerprint() {
+  const norm = (text) => {
+    try { return JSON.stringify(JSON.parse(text)); }
+    catch (_) { return (text || '').trim(); }
+  };
+  return hashText(norm(elLeft.value) + '\u0000' + norm(elRight.value));
+}
+
+// 读取整个主键存储桶 { 指纹: {路径:主键} }
+function loadKeyStore() {
+  try {
+    const raw = localStorage.getItem(LS_KEYSTORE);
+    const obj = raw ? JSON.parse(raw) : {};
+    return obj && typeof obj === 'object' ? obj : {};
+  } catch (_) { return {}; }
+}
+
+// 写回整个主键存储桶
+function saveKeyStore(store) {
+  try { localStorage.setItem(LS_KEYSTORE, JSON.stringify(store)); } catch (_) {}
+}
+
+// 取出「当前这组文件」此前保存过的主键映射
+function getSavedKeysForCurrentFiles() {
+  const store = loadKeyStore();
+  const fp = currentFileFingerprint();
+  return (store[fp] && typeof store[fp] === 'object') ? store[fp] : {};
+}
+
+// 将当前主键映射按「当前这组文件」的指纹持久化
+function persistKeysForCurrentFiles() {
+  const store = loadKeyStore();
+  store[currentFileFingerprint()] = Object.assign({}, arrayKeyMap);
+  saveKeyStore(store);
+}
+
+// 最近一次对比收集到的差异全路径列表 { added:[], removed:[], changed:[] }
+let diffPaths = { added: [], removed: [], changed: [] };
+// 抽屉分页状态
+const PAGE_SIZE = 12;
+let drawerState = { type: null, list: [], page: 1 };
 
 // 当前步骤
 let currentStep = 1;
@@ -35,6 +93,7 @@ function saveState() {
       left: elLeft.value,
       right: elRight.value,
       arrayKeys: arrayKeyMap,
+      fileNames,
     };
     localStorage.setItem(LS_KEY, JSON.stringify(state));
   } catch (_) { /* 忽略存储异常（隐私模式等） */ }
@@ -54,6 +113,10 @@ function restoreState() {
     }
     if (state.arrayKeys && typeof state.arrayKeys === 'object') {
       arrayKeyMap = state.arrayKeys;
+    }
+    if (state.fileNames && typeof state.fileNames === 'object') {
+      fileNames = { left: state.fileNames.left || '', right: state.fileNames.right || '' };
+      renderFileNames();
     }
     const hasText = typeof state.left === 'string' && typeof state.right === 'string'
       && (state.left.trim() || state.right.trim());
@@ -77,6 +140,29 @@ function getOptions() {
     collapseAll: checked('optCollapseAll'),
     arrayKeys: arrayKeyMap,
   };
+}
+
+// 渲染左右两侧选择的文件名/路径（无则手动输入提示）
+function renderFileNames() {
+  const conf = [
+    { side: 'left', boxId: 'fileNameLeft' },
+    { side: 'right', boxId: 'fileNameRight' },
+  ];
+  conf.forEach(({ side, boxId }) => {
+    const box = $(boxId);
+    if (!box) return;
+    const span = box.querySelector('span');
+    const name = fileNames[side];
+    if (name) {
+      if (span) { span.textContent = name; span.title = name; }
+      box.classList.remove('hidden');
+      box.classList.add('flex');
+    } else {
+      if (span) { span.textContent = ''; span.title = ''; }
+      box.classList.add('hidden');
+      box.classList.remove('flex');
+    }
+  });
 }
 
 // 解析单侧文本，返回 { ok, data, error }
@@ -166,11 +252,67 @@ function prepareStep3() {
     return;
   }
   detectedArrays = scanArrayKeys(parsed.left, parsed.right);
-  arrayKeyMap = resolveKeyMap(detectedArrays, arrayKeyMap);
+  // 优先用「当前这组文件」此前保存的主键映射来恢复（相同文件、相同数组刷新后自动套用）
+  const savedForFiles = getSavedKeysForCurrentFiles();
+  const baseMap = Object.assign({}, savedForFiles, arrayKeyMap);
+  arrayKeyMap = resolveKeyMap(detectedArrays, baseMap);
+  // 恢复后立即按文件指纹回写一次，保证后续刷新可命中
+  persistKeysForCurrentFiles();
   renderKeyChooser(list, detectedArrays, arrayKeyMap, (path, value) => {
     arrayKeyMap[path] = value;
     saveState();
+    persistKeysForCurrentFiles();
+    // renderKeyChooser 内部点击会重渲染列表，恢复当前数组高亮
+    if (detectedArrays.length > 1) updateArrNav();
   });
+  setupArrNav();
+}
+
+// ---------- 第3步：多数组快速切换导航 ----------
+let curArrIndex = 0;
+
+function setupArrNav() {
+  const nav = $('arrNav');
+  const total = detectedArrays.length;
+  if (!nav) return;
+  // 仅当存在 1 个以上对象数组时才显示导航
+  if (total <= 1) {
+    nav.classList.add('hidden');
+    nav.classList.remove('flex');
+    return;
+  }
+  nav.classList.remove('hidden');
+  nav.classList.add('flex');
+  curArrIndex = 0;
+  updateArrNav();
+}
+
+// 高亮当前数组卡片并更新计数 / 按钮可用状态
+function updateArrNav() {
+  const total = detectedArrays.length;
+  const curEl = $('arrCur'); if (curEl) curEl.textContent = curArrIndex + 1;
+  const totEl = $('arrTotal'); if (totEl) totEl.textContent = total;
+  const prev = $('btnPrevArr'); if (prev) prev.disabled = curArrIndex <= 0;
+  const next = $('btnNextArr'); if (next) next.disabled = curArrIndex >= total - 1;
+
+  // 卡片高亮
+  document.querySelectorAll('#keyList .key-array-block').forEach(card => {
+    const isCur = Number(card.dataset.arrIndex) === curArrIndex;
+    card.classList.toggle('ring-2', isCur);
+    card.classList.toggle('ring-indigo-400', isCur);
+    card.classList.toggle('shadow-md', isCur);
+  });
+
+  // 滚动定位到当前卡片
+  const target = $('arrCard' + curArrIndex);
+  if (target) target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function gotoArr(delta) {
+  const total = detectedArrays.length;
+  if (!total) return;
+  curArrIndex = Math.max(0, Math.min(total - 1, curArrIndex + delta));
+  updateArrNav();
 }
 
 // 真正执行对比与渲染（第4步进入时调用）
@@ -181,25 +323,87 @@ function runCompare() {
       <i class="ri-error-warning-line text-4xl block mb-2"></i>
       无法对比，请返回第二步检查 JSON 输入
     </div>`;
-    elSummary.innerHTML = '';
+    if (elLegend) elLegend.innerHTML = '';
     return;
   }
 
   // 确保主键映射已就绪（用户可能跳过第3步直接点导航）
   detectedArrays = scanArrayKeys(parsed.left, parsed.right);
-  arrayKeyMap = resolveKeyMap(detectedArrays, arrayKeyMap);
+  const savedForFiles = getSavedKeysForCurrentFiles();
+  arrayKeyMap = resolveKeyMap(detectedArrays, Object.assign({}, savedForFiles, arrayKeyMap));
+  persistKeysForCurrentFiles();
 
   const opts = getOptions();
   const tree = diffJSON(parsed.left, parsed.right, opts);
   renderDiff(elResult, tree, opts);
   saveState();
 
+  // 收集差异全路径，供抽屉列表与 key 维度统计使用
+  diffPaths = collectDiffPaths(tree);
+
   const s = summarize(tree);
-  elSummary.innerHTML = `
-    <span class="flex items-center gap-1 text-emerald-100"><i class="ri-indeterminate-circle-line"></i> 仅A ${s.removed}</span>
-    <span class="flex items-center gap-1 text-rose-100"><i class="ri-add-circle-line"></i> 仅B ${s.added}</span>
-    <span class="flex items-center gap-1 text-amber-100"><i class="ri-error-warning-line"></i> 值不同 ${s.changed}</span>
-    <span class="flex items-center gap-1 text-white/80"><i class="ri-equal-line"></i> 相同 ${s.same}</span>`;
+  renderLegend(s);
+}
+
+// 渲染 legendBar：按 key 维度统计仅A有/仅B有/值不同的明细，并附相同数量
+const LEGEND_META = [
+  { type: 'removed', label: '仅A有', icon: 'ri-indeterminate-circle-line', dot: 'bg-emerald-200', head: 'text-emerald-700', hover: 'hover:bg-emerald-50', border: 'border-emerald-200', clickable: true },
+  { type: 'added',   label: '仅B有', icon: 'ri-add-circle-line',          dot: 'bg-rose-200',    head: 'text-rose-700',    hover: 'hover:bg-rose-50',    border: 'border-rose-200',    clickable: true },
+  { type: 'changed', label: '值不同', icon: 'ri-error-warning-line',       dot: 'bg-amber-200',   head: 'text-amber-700',   hover: 'hover:bg-amber-50',   border: 'border-amber-200',   clickable: true },
+  { type: 'same',    label: '相同',   icon: 'ri-equal-line',               dot: 'bg-slate-200',   head: 'text-slate-600',   hover: '',                    border: 'border-slate-200',   clickable: false },
+];
+
+function renderLegend(summary) {
+  if (!elLegend) return;
+  const stripPrefix = (() => { const el = $('optStripPrefix'); return el ? el.checked : true; })();
+
+  // 开关关闭（按完整路径统计）时，路径较长，卡片改为一行一个；打开时维持多列网格
+  elLegend.className = stripPrefix
+    ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3'
+    : 'grid grid-cols-1 gap-3';
+
+  elLegend.innerHTML = LEGEND_META.map(m => {
+    const total = m.type === 'same' ? (summary.same || 0) : (diffPaths[m.type] ? diffPaths[m.type].length : 0);
+
+    // 标题栏
+    const headClick = m.clickable ? `data-stat="${m.type}"` : '';
+    const cursor = m.clickable ? 'cursor-pointer ' + m.hover : '';
+    const head = `
+      <div class="legend-head flex items-center justify-between gap-1 px-2.5 py-1.5 ${cursor} transition" ${headClick} ${m.clickable ? `title="点击查看「${m.label}」全部差异列表"` : ''}>
+        <span class="flex items-center gap-1.5 font-semibold ${m.head}">
+          <span class="w-3 h-3 rounded-sm ${m.dot} inline-block"></span>
+          <i class="${m.icon}"></i> ${m.label}
+        </span>
+        <span class="flex items-center gap-1 text-xs ${m.head}">
+          <span class="font-bold">${total}</span>
+          ${m.clickable ? '<i class="ri-external-link-line opacity-60"></i>' : ''}
+        </span>
+      </div>`;
+
+    // 明细：相同类别不展开 key 明细（只显示总数）
+    let body = '';
+    if (m.type !== 'same') {
+      const rows = aggregateByKey(diffPaths[m.type] || [], stripPrefix);
+      if (!rows.length) {
+        body = `<div class="px-2.5 py-2 text-[11px] text-slate-300">无</div>`;
+      } else {
+        body = `<div class="max-h-44 overflow-auto px-1.5 py-1 space-y-0.5">` + rows.map(r => `
+          <div class="flex items-center justify-between gap-2 px-1.5 py-0.5 rounded hover:bg-white text-xs">
+            <span class="font-mono text-slate-600 truncate" title="${escHtml(r.key)}">${escHtml(r.key)}</span>
+            <span class="font-semibold text-slate-700 shrink-0">${r.count}</span>
+          </div>`).join('') + `</div>`;
+      }
+    } else {
+      body = `<div class="px-2.5 py-2 text-[11px] text-slate-400">共 ${total} 处相同</div>`;
+    }
+
+    return `<div class="border ${m.border} rounded-lg bg-white overflow-hidden">${head}${body}</div>`;
+  }).join('');
+
+  // 绑定标题点击 -> 打开抽屉
+  elLegend.querySelectorAll('.legend-head[data-stat]').forEach(el => {
+    el.addEventListener('click', () => openStatDrawer(el.dataset.stat));
+  });
 }
 
 // 格式化两侧 JSON
@@ -244,30 +448,165 @@ const SAMPLE_RIGHT = {
   ]
 };
 
-function loadSample() {
-  elLeft.value = JSON.stringify(SAMPLE_LEFT, null, 2);
-  elRight.value = JSON.stringify(SAMPLE_RIGHT, null, 2);
-  parseSide(elLeft.value, elStatLeft);
-  parseSide(elRight.value, elStatRight);
-  saveState();
-  goStep(2);
+// ---------- 差异结果全屏查看 ----------
+// 使用原生 Fullscreen API：进入全屏后调整内边距与最大高度以铺满屏幕；ESC 由浏览器原生支持退出
+function toggleResultFullscreen() {
+  if (document.fullscreenElement) {
+    document.exitFullscreen();
+  } else if (elResult && elResult.requestFullscreen) {
+    elResult.requestFullscreen().catch(() => {
+      alert('当前浏览器不支持全屏，或被安全策略阻止。');
+    });
+  }
 }
 
-function clearAll() {
-  elLeft.value = '';
-  elRight.value = '';
-  arrayKeyMap = {};
-  detectedArrays = [];
-  elStatLeft.textContent = '等待输入…';
-  elStatRight.textContent = '等待输入…';
-  elStatLeft.className = elStatRight.className = 'text-xs text-slate-400';
-  elSummary.innerHTML = '';
-  elResult.innerHTML = `<div class="text-slate-400 text-center py-16">
-    <i class="ri-search-eye-line text-5xl block mb-3 opacity-40"></i>
-    进入此步骤将自动执行对比
-  </div>`;
-  saveState();
-  goStep(2);
+// 同步全屏按钮文案/图标，并在全屏态下调整 #diffResult 的样式
+function updateFullscreenBtn() {
+  const btn = $('btnFullscreen');
+  const isFs = document.fullscreenElement === elResult;
+  if (elResult) {
+    if (isFs) {
+      // 全屏时铺满，去掉高度限制并加大内边距、白底
+      elResult.classList.add('fs-active', 'bg-white');
+      elResult.classList.remove('max-h-[520px]');
+      elResult.style.maxHeight = '100vh';
+      elResult.style.height = '100vh';
+      elResult.style.padding = '24px';
+    } else {
+      elResult.classList.remove('fs-active', 'bg-white');
+      elResult.classList.add('max-h-[520px]');
+      elResult.style.maxHeight = '';
+      elResult.style.height = '';
+      elResult.style.padding = '';
+    }
+  }
+  if (btn) {
+    btn.innerHTML = isFs
+      ? '<i class="ri-fullscreen-exit-line"></i> 退出全屏'
+      : '<i class="ri-fullscreen-line"></i> 全屏查看';
+  }
+}
+
+// ---------- 差异统计抽屉 ----------
+const STAT_META = {
+  removed: { title: '仅 A 有的 Key', icon: 'ri-indeterminate-circle-line', head: 'bg-emerald-600' },
+  added:   { title: '仅 B 有的 Key', icon: 'ri-add-circle-line',          head: 'bg-rose-600' },
+  changed: { title: '值不同的 Key',  icon: 'ri-error-warning-line',        head: 'bg-amber-600' },
+};
+
+// HTML 转义
+function escHtml(s) {
+  return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+// 简单值预览
+function previewVal(v) {
+  if (v === undefined) return '（缺失）';
+  if (v === null) return 'null';
+  if (typeof v === 'object') {
+    const s = JSON.stringify(v);
+    return s.length > 60 ? s.slice(0, 60) + '…' : s;
+  }
+  if (typeof v === 'string') return `"${v.length > 50 ? v.slice(0, 50) + '…' : v}"`;
+  return String(v);
+}
+
+// 按「所在路径(group)的差异数」倒序排序，组内保持原顺序
+function sortByGroupCount(list) {
+  const counts = {};
+  list.forEach(it => { counts[it.group] = (counts[it.group] || 0) + 1; });
+  return list
+    .map((it, i) => ({ it, i }))
+    .sort((a, b) => {
+      const d = (counts[b.it.group] || 0) - (counts[a.it.group] || 0);
+      if (d !== 0) return d;
+      // 同一分组数量时，按分组名聚合在一起，再按原顺序
+      if (a.it.group !== b.it.group) return a.it.group.localeCompare(b.it.group);
+      return a.i - b.i;
+    })
+    .map(x => Object.assign({}, x.it, { _groupCount: counts[x.it.group] || 0 }));
+}
+
+// 打开抽屉
+function openStatDrawer(type) {
+  const meta = STAT_META[type];
+  if (!meta) return;
+  drawerState.type = type;
+  drawerState.list = sortByGroupCount((diffPaths[type] || []).slice());
+  drawerState.page = 1;
+
+  const header = $('statDrawerHeader');
+  if (header) header.className = `flex items-center justify-between px-5 py-4 text-white shrink-0 ${meta.head}`;
+  const titleEl = $('statDrawerTitle'); if (titleEl) titleEl.textContent = meta.title;
+  const iconEl = $('statDrawerIcon'); if (iconEl) iconEl.className = meta.icon;
+  const totalEl = $('statDrawerTotal'); if (totalEl) totalEl.textContent = drawerState.list.length;
+
+  renderDrawerPage();
+
+  const mask = $('statDrawerMask');
+  const drawer = $('statDrawer');
+  if (mask) { mask.classList.remove('hidden'); requestAnimationFrame(() => mask.classList.remove('opacity-0')); }
+  if (drawer) requestAnimationFrame(() => drawer.classList.remove('translate-x-full'));
+}
+
+// 关闭抽屉
+function closeStatDrawer() {
+  const mask = $('statDrawerMask');
+  const drawer = $('statDrawer');
+  if (drawer) drawer.classList.add('translate-x-full');
+  if (mask) {
+    mask.classList.add('opacity-0');
+    setTimeout(() => mask.classList.add('hidden'), 200);
+  }
+}
+
+// 渲染当前页
+function renderDrawerPage() {
+  const list = drawerState.list;
+  const totalPage = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+  if (drawerState.page > totalPage) drawerState.page = totalPage;
+  const start = (drawerState.page - 1) * PAGE_SIZE;
+  const pageItems = list.slice(start, start + PAGE_SIZE);
+
+  const listEl = $('statDrawerList');
+  if (listEl) {
+    if (!pageItems.length) {
+      listEl.innerHTML = `<div class="text-center text-slate-400 py-16"><i class="ri-inbox-line text-4xl block mb-2"></i>该类别没有差异</div>`;
+    } else {
+      listEl.innerHTML = pageItems.map((it, idx) => {
+        const seq = start + idx + 1;
+        let valHtml = '';
+        if (it.status === 'changed') {
+          valHtml = `<div class="mt-1 text-xs flex items-center gap-1 flex-wrap">
+            <span class="bg-emerald-100 text-emerald-800 px-1.5 rounded">${escHtml(previewVal(it.left))}</span>
+            <span class="text-slate-400">&rarr;</span>
+            <span class="bg-rose-100 text-rose-800 px-1.5 rounded">${escHtml(previewVal(it.right))}</span>
+          </div>`;
+        } else {
+          const v = it.status === 'added' ? it.right : it.left;
+          valHtml = `<div class="mt-1 text-xs text-slate-500">值：<span class="bg-slate-100 px-1.5 rounded">${escHtml(previewVal(v))}</span></div>`;
+        }
+        return `
+          <div class="border border-slate-200 rounded-lg p-3 hover:bg-slate-50 transition">
+            <div class="flex items-start gap-2">
+              <span class="text-[11px] text-slate-400 font-mono mt-0.5 shrink-0">#${seq}</span>
+              <div class="min-w-0 flex-1">
+                <div class="font-mono text-sm text-indigo-700 break-all">${escHtml(it.path)}</div>
+                <div class="text-[11px] text-slate-400 mt-0.5">所在路径：<span class="font-mono">${escHtml(it.group)}</span> · 该路径共 <b class="text-slate-600">${it._groupCount}</b> 处差异</div>
+                ${valHtml}
+              </div>
+            </div>
+          </div>`;
+      }).join('');
+    }
+  }
+
+  const cur = $('statCurPage'); if (cur) cur.textContent = drawerState.page;
+  const tot = $('statTotalPage'); if (tot) tot.textContent = totalPage;
+  const prev = $('statPrevPage'); if (prev) prev.disabled = drawerState.page <= 1;
+  const next = $('statNextPage'); if (next) next.disabled = drawerState.page >= totalPage;
+  const listScroll = $('statDrawerList'); if (listScroll) listScroll.scrollTop = 0;
 }
 
 // ---------- 事件绑定 ----------
@@ -277,8 +616,145 @@ function on(id, event, handler) {
   if (el) el.addEventListener(event, handler);
 }
 
-on('btnSample', 'click', loadSample);
-on('btnClear', 'click', clearAll);
+// 更新「去掉前缀」开关右侧的 开/关 文字
+function updateStripPrefixLabel() {
+  const el = $('optStripPrefix');
+  const txt = $('stripPrefixState');
+  if (el && txt) txt.textContent = el.checked ? '开' : '关';
+}
+
+// 触发浏览器下载文本文件
+function downloadText(filename, text, mime = 'text/plain;charset=utf-8') {
+  const blob = new Blob([text], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// 将单个差异值转为纯文本（不截断，保留完整内容）—— 用作表格单元格值
+function valToPlain(v) {
+  if (v === undefined) return '（缺失）';
+  if (v === null) return 'null';
+  if (typeof v === 'object') return JSON.stringify(v);
+  if (typeof v === 'string') return v;
+  return String(v);
+}
+
+// 构建「统计信息」sheet 的二维数组（AOA）
+function buildSummaryAOA() {
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const ts = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  const cntRemoved = diffPaths.removed.length;
+  const cntAdded = diffPaths.added.length;
+  const cntChanged = diffPaths.changed.length;
+
+  const aoa = [];
+  aoa.push(['JSON 差异详细统计报告']);
+  aoa.push([]);
+  aoa.push(['生成时间', ts]);
+  aoa.push(['左侧来源(A)', fileNames.left || '（手动输入）']);
+  aoa.push(['右侧来源(B)', fileNames.right || '（手动输入）']);
+  aoa.push(['统计口径', '完整前缀路径（未去掉前缀）']);
+  aoa.push([]);
+  aoa.push(['差异类别', '数量']);
+  aoa.push(['仅A有', cntRemoved]);
+  aoa.push(['仅B有', cntAdded]);
+  aoa.push(['值不同', cntChanged]);
+  aoa.push(['合计', cntRemoved + cntAdded + cntChanged]);
+  aoa.push([]);
+
+  // 各类别「按完整路径聚合」明细
+  const CAT = [
+    { type: 'removed', label: '仅A有' },
+    { type: 'added', label: '仅B有' },
+    { type: 'changed', label: '值不同' },
+  ];
+  CAT.forEach(c => {
+    aoa.push([`【${c.label}】按完整路径聚合`]);
+    aoa.push(['完整路径', '出现次数']);
+    const agg = aggregateByKey(diffPaths[c.type] || [], false);
+    if (!agg.length) {
+      aoa.push(['（无）', 0]);
+    } else {
+      agg.forEach(r => aoa.push([r.key, r.count]));
+    }
+    aoa.push([]);
+  });
+
+  return aoa;
+}
+
+// 构建某一类别明细 sheet 的二维数组（AOA）
+// removed/added：序号 | 完整路径 | 所在路径 | 值
+// changed：序号 | 完整路径 | 所在路径 | A值 | B值
+function buildCategoryAOA(type) {
+  const list = diffPaths[type] || [];
+  const aoa = [];
+  if (type === 'changed') {
+    aoa.push(['序号', '完整路径', '所在路径', 'A值', 'B值']);
+    list.forEach((it, i) => {
+      aoa.push([i + 1, it.path, it.group, valToPlain(it.left), valToPlain(it.right)]);
+    });
+  } else {
+    aoa.push(['序号', '完整路径', '所在路径', '值']);
+    list.forEach((it, i) => {
+      const v = type === 'added' ? it.right : it.left;
+      aoa.push([i + 1, it.path, it.group, valToPlain(v)]);
+    });
+  }
+  if (list.length === 0) aoa.push(['（无数据）']);
+  return aoa;
+}
+
+// 下载详细统计：生成含 4 个 Sheet 的工作簿（统计信息 + 仅A有 + 仅B有 + 值不同）
+function downloadDetailStat() {
+  const total = diffPaths.removed.length + diffPaths.added.length + diffPaths.changed.length;
+  if (!total) {
+    alert('当前没有可导出的差异统计，请先在第四步执行对比。');
+    return;
+  }
+  if (typeof XLSX === 'undefined') {
+    alert('表格导出组件尚未加载完成，请稍后重试。');
+    return;
+  }
+
+  const wb = XLSX.utils.book_new();
+
+  // Sheet1：统计信息
+  const wsSummary = XLSX.utils.aoa_to_sheet(buildSummaryAOA());
+  wsSummary['!cols'] = [{ wch: 40 }, { wch: 16 }];
+  XLSX.utils.book_append_sheet(wb, wsSummary, '统计信息');
+
+  // Sheet2：仅A有（removed）
+  const wsRemoved = XLSX.utils.aoa_to_sheet(buildCategoryAOA('removed'));
+  wsRemoved['!cols'] = [{ wch: 6 }, { wch: 48 }, { wch: 32 }, { wch: 40 }];
+  XLSX.utils.book_append_sheet(wb, wsRemoved, '仅A有');
+
+  // Sheet3：仅B有（added）
+  const wsAdded = XLSX.utils.aoa_to_sheet(buildCategoryAOA('added'));
+  wsAdded['!cols'] = [{ wch: 6 }, { wch: 48 }, { wch: 32 }, { wch: 40 }];
+  XLSX.utils.book_append_sheet(wb, wsAdded, '仅B有');
+
+  // Sheet4：值不同（changed）
+  const wsChanged = XLSX.utils.aoa_to_sheet(buildCategoryAOA('changed'));
+  wsChanged['!cols'] = [{ wch: 6 }, { wch: 48 }, { wch: 32 }, { wch: 40 }, { wch: 40 }];
+  XLSX.utils.book_append_sheet(wb, wsChanged, '值不同');
+
+  const now = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}_${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
+  XLSX.writeFile(wb, `json-diff-${stamp}.xlsx`);
+}
+
+// 全屏查看差异结果（ESC 退出）
+on('btnFullscreen', 'click', toggleResultFullscreen);
+document.addEventListener('fullscreenchange', updateFullscreenBtn);
 
 // 步骤导航条点击跳转
 document.querySelectorAll('.step-item').forEach(item => {
@@ -296,11 +772,27 @@ on('btnToStep3', 'click', () => {
 });
 // 第3步 -> 第4步
 on('btnToStep4', 'click', () => goStep(4));
+// 第3步：上一个 / 下一个数组快速切换
+on('btnPrevArr', 'click', () => gotoArr(-1));
+on('btnNextArr', 'click', () => gotoArr(1));
 // 第4步「重新对比」
 on('btnRecompare', 'click', () => runCompare());
+// 第4步「下载详细统计」
+on('btnDownloadStat', 'click', downloadDetailStat);
+
+// 差异统计抽屉：关闭、遮罩、分页
+on('statDrawerClose', 'click', closeStatDrawer);
+on('statDrawerMask', 'click', closeStatDrawer);
+on('statPrevPage', 'click', () => { if (drawerState.page > 1) { drawerState.page--; renderDrawerPage(); } });
+on('statNextPage', 'click', () => {
+  const totalPage = Math.max(1, Math.ceil(drawerState.list.length / PAGE_SIZE));
+  if (drawerState.page < totalPage) { drawerState.page++; renderDrawerPage(); }
+});
+// ESC 关闭抽屉
+document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeStatDrawer(); });
 
 // 本地文件读取：将文件内容读入对应文本框
-function readLocalFile(file, targetEl, statEl) {
+function readLocalFile(file, targetEl, statEl, side) {
   if (!file) return;
   const maxSize = 10 * 1024 * 1024; // 限制 10MB
   if (file.size > maxSize) {
@@ -317,6 +809,11 @@ function readLocalFile(file, targetEl, statEl) {
       targetEl.value = text;
     }
     parseSide(targetEl.value, statEl);
+    // 记录并展示文件名/路径（浏览器出于安全只暴露文件名）
+    if (side) {
+      fileNames[side] = file.webkitRelativePath || file.name || '';
+      renderFileNames();
+    }
     saveState();
   };
   reader.onerror = () => {
@@ -329,14 +826,14 @@ function readLocalFile(file, targetEl, statEl) {
 // 左侧文件选择
 on('btnFileLeft', 'click', () => $('fileLeft') && $('fileLeft').click());
 on('fileLeft', 'change', (e) => {
-  readLocalFile(e.target.files[0], elLeft, elStatLeft);
+  readLocalFile(e.target.files[0], elLeft, elStatLeft, 'left');
   e.target.value = '';
 });
 
 // 右侧文件选择
 on('btnFileRight', 'click', () => $('fileRight') && $('fileRight').click());
 on('fileRight', 'change', (e) => {
-  readLocalFile(e.target.files[0], elRight, elStatRight);
+  readLocalFile(e.target.files[0], elRight, elStatRight, 'right');
   e.target.value = '';
 });
 
@@ -344,13 +841,22 @@ on('fileRight', 'change', (e) => {
 OPT_IDS.forEach(id => {
   on(id, 'change', () => {
     saveState();
+    updateStripPrefixLabel();
     if (currentStep === 4) runCompare();
   });
 });
 
-// 输入时更新状态提示并持久化文本
-if (elLeft) elLeft.addEventListener('input', () => { parseSide(elLeft.value, elStatLeft); saveState(); });
-if (elRight) elRight.addEventListener('input', () => { parseSide(elRight.value, elStatRight); saveState(); });
+// 输入时更新状态提示并持久化文本；手动编辑则清除文件来源标记
+if (elLeft) elLeft.addEventListener('input', () => {
+  parseSide(elLeft.value, elStatLeft);
+  if (fileNames.left) { fileNames.left = ''; renderFileNames(); }
+  saveState();
+});
+if (elRight) elRight.addEventListener('input', () => {
+  parseSide(elRight.value, elStatRight);
+  if (fileNames.right) { fileNames.right = ''; renderFileNames(); }
+  saveState();
+});
 
 // ---------- 初始化 ----------
 if (restoreState()) {
@@ -362,7 +868,11 @@ if (restoreState()) {
   elRight.value = JSON.stringify(SAMPLE_RIGHT, null, 2);
   parseSide(elLeft.value, elStatLeft);
   parseSide(elRight.value, elStatRight);
+  fileNames = { left: '示例数据（内置）', right: '示例数据（内置）' };
+  renderFileNames();
   saveState();
 }
 // 始终从第一步「对比规则」开始
 goStep(1);
+// 同步「去掉前缀」开关的 开/关 文字
+updateStripPrefixLabel();
