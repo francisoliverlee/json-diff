@@ -1,0 +1,54 @@
+/* style.css —— 补充样式（Tailwind 之外的少量增强） */
+
+textarea {
+  line-height: 1.6;
+  tab-size: 2;
+}
+
+/* 滚动条美化 */
+#diffResult::-webkit-scrollbar,
+textarea::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+#diffResult::-webkit-scrollbar-thumb,
+textarea::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+#diffResult::-webkit-scrollbar-thumb:hover,
+textarea::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
+/* 差异节点 hover 高亮 */
+.diff-node > div:hover {
+  background-color: rgba(99, 102, 241, 0.04);
+}
+
+/* 折叠图标 */
+.toggle-icon {
+  transition: transform 0.15s ease;
+  user-select: none;
+}
+
+.node-children {
+  transition: all 0.2s ease;
+}
+
+/* 步骤导航：未激活的圆点默认底色（防止 JS 执行前无样式闪烁） */
+.step-dot {
+  background-color: #e2e8f0;
+  color: #64748b;
+}
+.step-item:hover .step-dot {
+  filter: brightness(0.97);
+}
+/* 步骤面板切换的淡入动画 */
+.step-panel:not(.hidden) {
+  animation: stepFade 0.25s ease;
+}
+@keyframes stepFade {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
