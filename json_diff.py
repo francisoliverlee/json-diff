@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from typing import Any, Dict, List
 
 
@@ -40,7 +41,7 @@ def diff_json(left: Any, right: Any, path: str = "$") -> List[Dict[str, Any]]:
         return differences
 
     if left != right:
-        if type(left) is not type(right):
+        if type(left) != type(right):
             differences.append(
                 {
                     "path": path,
@@ -58,8 +59,13 @@ def diff_json(left: Any, right: Any, path: str = "$") -> List[Dict[str, Any]]:
 
 
 def _load_json(path: str) -> Any:
-    with open(path, "r", encoding="utf-8") as file:
-        return json.load(file)
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            return json.load(file)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"Invalid JSON in '{path}': {exc.msg} at line {exc.lineno}, column {exc.colno}"
+        ) from exc
 
 
 def main() -> int:
@@ -68,8 +74,12 @@ def main() -> int:
     parser.add_argument("right", help="Path to second JSON file")
     args = parser.parse_args()
 
-    left = _load_json(args.left)
-    right = _load_json(args.right)
+    try:
+        left = _load_json(args.left)
+        right = _load_json(args.right)
+    except (OSError, ValueError) as exc:
+        print(str(exc), file=sys.stderr)
+        return 2
 
     is_equal = compare_json(left, right)
     differences = diff_json(left, right)

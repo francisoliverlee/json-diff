@@ -1,6 +1,8 @@
+import os
+import tempfile
 import unittest
 
-from json_diff import compare_json, diff_json
+from json_diff import _load_json, compare_json, diff_json
 
 
 class JsonDiffTests(unittest.TestCase):
@@ -41,6 +43,17 @@ class JsonDiffTests(unittest.TestCase):
                 }
             ],
         )
+
+    def test_load_json_reports_invalid_json(self):
+        with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8") as temp_file:
+            temp_file.write('{"a": }')
+            invalid_path = temp_file.name
+
+        try:
+            with self.assertRaisesRegex(ValueError, "Invalid JSON"):
+                _load_json(invalid_path)
+        finally:
+            os.remove(invalid_path)
 
 
 if __name__ == "__main__":
