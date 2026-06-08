@@ -55,6 +55,10 @@ class JsonDiffTests(unittest.TestCase):
         finally:
             os.remove(invalid_path)
 
+    def test_load_json_raises_file_not_found(self):
+        with self.assertRaises(FileNotFoundError):
+            _load_json("/tmp/path-that-does-not-exist-12345.json")
+
 
 if __name__ == "__main__":
     unittest.main()
