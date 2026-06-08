@@ -41,7 +41,7 @@ def diff_json(left: Any, right: Any, path: str = "$") -> List[Dict[str, Any]]:
         return differences
 
     if left != right:
-        if type(left) is not type(right):
+        if left.__class__ != right.__class__:
             differences.append(
                 {
                     "path": path,

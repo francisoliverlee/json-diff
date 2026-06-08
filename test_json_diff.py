@@ -45,7 +45,7 @@ class JsonDiffTests(unittest.TestCase):
         )
 
     def test_load_json_reports_invalid_json(self):
-        with tempfile.NamedTemporaryFile("w", delete=False, encoding="utf-8") as temp_file:
+        with tempfile.NamedTemporaryFile(mode="w", delete=False, encoding="utf-8") as temp_file:
             temp_file.write('{"a": }')
             invalid_path = temp_file.name
 
