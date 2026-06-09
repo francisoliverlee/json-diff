@@ -19,6 +19,16 @@
 
 // ---------- 工具函数 ----------
 
+// 「对象数组未设置主键」错误：要求每个对象数组（含多层嵌套路径中的每一层）都必须设置主键，
+// 否则对比/回填直接报错，绝不退化为按下标对齐。
+function makeNoArrayKeyError(arrayPath) {
+  const label = arrayPath || '(根数组)';
+  const err = new Error(`对象数组「${label}」未设置对比主键，无法对比。请回到第 3 步为该数组选择主键。`);
+  err.code = 'NO_ARRAY_KEY';
+  err.arrayPath = arrayPath;
+  return err;
+}
+
 // 判断值的基本类型类别
 function kindOf(v) {
   if (v === null) return 'null';

@@ -169,6 +169,33 @@ function restoreState() {
   }
 }
 
+// 返回「尚未选择主键」的对象数组路径列表。
+// 规则：每个对象数组都必须选择一个主键字段（非空），否则不允许进入后续步骤。
+function unselectedArrayPaths() {
+  return (detectedArrays || [])
+    .filter(a => {
+      const k = arrayKeyMap[a.path];
+      return !(typeof k === 'string' && k !== '' && a.fields.includes(k));
+    })
+    .map(a => a.label || a.path || '(根数组)');
+}
+
+// 校验全部对象数组是否都已选主键；未通过则提示并定位到第一个未选数组，返回 false
+function ensureAllArrayKeys() {
+  // 需先有有效输入与已扫描的数组
+  if (!detectedArrays || !detectedArrays.length) return true; // 无对象数组则无需选择
+  const missing = unselectedArrayPaths();
+  if (missing.length === 0) return true;
+  alert('请先为以下对象数组选择对比主键（不允许使用数组下标 / 字段下标）：\n\n' + missing.join('\n'));
+  // 定位到第一个未选主键的数组，便于用户操作
+  const idx = detectedArrays.findIndex(a => {
+    const k = arrayKeyMap[a.path];
+    return !(typeof k === 'string' && k !== '' && a.fields.includes(k));
+  });
+  if (idx >= 0) { curArrIndex = idx; updateArrNav(); }
+  return false;
+}
+
 // 读取当前开关选项
 function getOptions() {
   const checked = (id) => { const el = $(id); return el ? el.checked : false; };
@@ -227,6 +254,24 @@ function parseSide(text, statEl) {
 // ---------- 步骤切换 ----------
 function goStep(step) {
   step = Math.max(1, Math.min(TOTAL_STEPS, step));
+
+  // 进入第 4 / 5 步前：必须为每个对象数组都选定主键（不允许按下标对比）
+  if (step >= 4) {
+    // 确保已扫描出对象数组（直接点导航条跳转时可能尚未进入过第3步）
+    if (!detectedArrays || !detectedArrays.length) {
+      const parsed = validateInput();
+      if (!parsed) { goStep(3); return; }
+      detectedArrays = scanArrayKeys(parsed.left, parsed.right);
+      const baseMap = Object.assign({}, getSavedKeysForCurrentFiles(), arrayKeyMap);
+      arrayKeyMap = resolveKeyMap(detectedArrays, baseMap);
+    }
+    if (!ensureAllArrayKeys()) {
+      // 校验不通过：强制停留/回到第3步去选择主键
+      if (currentStep !== 3) { goStep(3); }
+      return;
+    }
+  }
+
   currentStep = step;
 
   // 切换面板显隐

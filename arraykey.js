@@ -2,9 +2,7 @@
 // 职责：
 //   1. 扫描两侧 JSON，找出所有「对象数组」及其路径，并提取候选主键字段
 //   2. 渲染右侧抽屉，让用户为每个对象数组选择对比主键
-//   3. 默认优先使用 id / name / action 作为主键
-
-const DEFAULT_KEYS = ['id', 'name', 'action'];
+//   3. 不做任何默认主键推断，所有主键均由用户在第三步手动选择
 
 function isPlainObj(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -62,9 +60,9 @@ export function scanArrayKeys(left, right) {
     .sort((a, b) => a.path.localeCompare(b.path))
     .map(item => {
       const fields = Array.from(item.fields);
-      // 默认主键：优先 id > name > action，否则取第一个字段
-      let defaultKey = DEFAULT_KEYS.find(k => fields.includes(k));
-      if (!defaultKey) defaultKey = fields[0] || '';
+      // 不自动推断主键，也不允许按下标对比：每个对象数组都必须由用户在第三步手动选择主键。
+      // defaultKey 为空字符串仅表示「尚未选择」，进入下一步前会被强制校验。
+      const defaultKey = '';
       return { path: item.path, label: item.label, fields, defaultKey, sample: item.sample };
     });
 }
@@ -162,10 +160,9 @@ export function renderKeyChooser(listEl, arrays, keyMap, onChange) {
             ${hasSample ? rows : '<div class="text-xs text-slate-400 py-2">无可预览样本</div>'}
           </div>
           <div class="mt-2 pt-2 border-t border-dashed border-slate-200">
-            <button class="key-byindex-btn text-xs flex items-center gap-1 ${current === '' ? 'text-indigo-600 font-semibold' : 'text-slate-400 hover:text-slate-600'}"
-              data-path="${a.path}">
-              <i class="ri-${current === '' ? 'checkbox-circle-fill' : 'circle-line'}"></i> 不使用主键（按数组下标对比）
-            </button>
+            ${current === ''
+              ? `<div class="text-xs text-rose-500 flex items-center gap-1"><i class="ri-error-warning-line"></i> 请为该对象数组选择一个主键（必选，不可使用下标对比）</div>`
+              : `<div class="text-xs text-emerald-600 flex items-center gap-1"><i class="ri-checkbox-circle-line"></i> 已选主键：<span class="font-mono font-semibold">${escapeHtml(current)}</span></div>`}
           </div>
         </div>
       </div>`;
@@ -176,13 +173,6 @@ export function renderKeyChooser(listEl, arrays, keyMap, onChange) {
     row.addEventListener('click', () => {
       onChange(row.dataset.path, row.dataset.field);
       renderKeyChooser(listEl, arrays, keyMap, onChange); // 重渲染以刷新高亮
-    });
-  });
-  // 点击「按下标对比」
-  listEl.querySelectorAll('.key-byindex-btn').forEach(btn => {
-    btn.addEventListener('click', () => {
-      onChange(btn.dataset.path, '');
-      renderKeyChooser(listEl, arrays, keyMap, onChange);
     });
   });
 }
