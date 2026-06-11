@@ -1,7 +1,7 @@
 // main.js —— 主入口：分步骤向导 + 对比与渲染
 import { diffJSON } from './diff.js';
 import { renderDiff, summarize, collectDiffPaths, aggregateByKey } from './render.js';
-import { scanArrayKeys, resolveKeyMap, renderKeyChooser } from './arraykey.js';
+import { scanArrayKeys, resolveKeyMap, renderKeyChooser, toKeyFields } from './arraykey.js';
 import { scanLeftPaths, applyFieldFill, previewValue, collectFieldValueStats } from './fieldfill.js';
 
 const $ = (id) => document.getElementById(id);
@@ -114,6 +114,10 @@ function persistFillForLeftFile() {
 
 // 最近一次对比收集到的差异全路径列表 { added:[], removed:[], changed:[] }
 let diffPaths = { added: [], removed: [], changed: [] };
+// 差异树「状态过滤」：图例标题栏复选框控制，根节点只展示选中的差异类型。默认全选。
+let statusFilter = new Set(['removed', 'added', 'changed', 'same']);
+// 最近一次计算得到的差异树（供图例状态过滤复选框切换时直接重渲染，无需重新 diff）
+let lastDiffTree = null;
 // 抽屉分页状态
 const PAGE_SIZE = 12;
 let drawerState = { type: null, list: [], page: 1 };
@@ -174,8 +178,10 @@ function restoreState() {
 function unselectedArrayPaths() {
   return (detectedArrays || [])
     .filter(a => {
-      const k = arrayKeyMap[a.path];
-      return !(typeof k === 'string' && k !== '' && a.fields.includes(k));
+      const fields = toKeyFields(arrayKeyMap[a.path]);
+      // 复合主键：必须至少选择一个字段，且所选字段均存在于该数组字段集合
+      const valid = fields.length > 0 && fields.every(f => a.fields.includes(f));
+      return !valid;
     })
     .map(a => a.label || a.path || '(根数组)');
 }
@@ -189,8 +195,8 @@ function ensureAllArrayKeys() {
   alert('请先为以下对象数组选择对比主键（不允许使用数组下标 / 字段下标）：\n\n' + missing.join('\n'));
   // 定位到第一个未选主键的数组，便于用户操作
   const idx = detectedArrays.findIndex(a => {
-    const k = arrayKeyMap[a.path];
-    return !(typeof k === 'string' && k !== '' && a.fields.includes(k));
+    const fields = toKeyFields(arrayKeyMap[a.path]);
+    return !(fields.length > 0 && fields.every(f => a.fields.includes(f)));
   });
   if (idx >= 0) { curArrIndex = idx; updateArrNav(); }
   return false;
@@ -205,6 +211,7 @@ function getOptions() {
     hideSame: checked('optHideSame'),
     collapseAll: checked('optCollapseAll'),
     arrayKeys: arrayKeyMap,
+    statusFilter,
   };
 }
 
@@ -432,6 +439,7 @@ function runCompare() {
 
   const opts = getOptions();
   const tree = diffJSON(parsed.left, parsed.right, opts);
+  lastDiffTree = tree;
   renderDiff(elResult, tree, opts);
   saveState();
 
@@ -815,12 +823,23 @@ function renderLegend(summary, legendEl, pathsData) {
   container.innerHTML = LEGEND_META.map(m => {
     const total = m.type === 'same' ? (summary.same || 0) : (paths[m.type] ? paths[m.type].length : 0);
 
+    // 状态过滤复选框：仅第4步主图例（默认 elLegend，未传入自定义 legendEl）展示，
+    // 用于控制「根节点」差异树只展示选中的差异类型。
+    const showFilter = !legendEl || legendEl === elLegend;
+    const checked = statusFilter.has(m.type) ? 'checked' : '';
+    const filterBox = showFilter
+      ? `<label class="legend-filter flex items-center shrink-0 cursor-pointer" title="勾选后在「根节点」差异树中展示「${m.label}」">
+           <input type="checkbox" class="legend-filter-cb w-3.5 h-3.5 accent-indigo-600 cursor-pointer" data-filter="${m.type}" ${checked} />
+         </label>`
+      : '';
+
     // 标题栏
     const headClick = m.clickable ? `data-stat="${m.type}"` : '';
     const cursor = m.clickable ? 'cursor-pointer ' + m.hover : '';
     const head = `
       <div class="legend-head flex items-center justify-between gap-1 px-2.5 py-1.5 ${cursor} transition" ${headClick} ${m.clickable ? `title="点击查看「${m.label}」全部差异列表"` : ''}>
         <span class="flex items-center gap-1.5 font-semibold ${m.head}">
+          ${filterBox}
           <span class="w-3 h-3 rounded-sm ${m.dot} inline-block"></span>
           <i class="${m.icon}"></i> ${m.label}
         </span>
@@ -857,6 +876,21 @@ function renderLegend(summary, legendEl, pathsData) {
       openStatDrawer(el.dataset.stat);
     });
   });
+
+  // 绑定状态过滤复选框 -> 控制「根节点」差异树只展示选中的差异类型
+  container.querySelectorAll('.legend-filter-cb[data-filter]').forEach(cb => {
+    // 阻止点击冒泡到标题（避免误触发打开抽屉）
+    cb.addEventListener('click', (e) => e.stopPropagation());
+    cb.addEventListener('change', () => {
+      const type = cb.dataset.filter;
+      if (cb.checked) statusFilter.add(type);
+      else statusFilter.delete(type);
+      // 用缓存的差异树重渲染（无需重新 diff），仅刷新展示
+      if (lastDiffTree && elResult) {
+        renderDiff(elResult, lastDiffTree, getOptions());
+      }
+    });
+  });
 }
 
 // 格式化两侧 JSON
@@ -883,8 +917,7 @@ const SAMPLE_LEFT = {
   address: { city: 'Beijing', zip: '100000' },
   scores: [90, 85, 70],
   team: [
-    { id: 1, role: 'admin' },
-    { id: 2, role: 'user' }
+    { id: 1, role: 'admin' }
   ]
 };
 const SAMPLE_RIGHT = {
@@ -1279,6 +1312,9 @@ on('btnRecompare', 'click', () => runCompare());
 // 第4步「下载详细统计」
 on('btnDownloadStat', 'click', downloadDetailStat);
 
+// 工具栏「清理缓存」：清除本地全部缓存（localStorage / sessionStorage / Cookie）后刷新
+on('btnClearCache', 'click', clearAllCache);
+
 // 差异统计抽屉：关闭、遮罩、分页
 on('statDrawerClose', 'click', closeStatDrawer);
 on('statDrawerMask', 'click', closeStatDrawer);
@@ -1289,6 +1325,45 @@ on('statNextPage', 'click', () => {
 });
 // ESC 关闭抽屉
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeStatDrawer(); });
+
+// ---------- 清理本地全部缓存 ----------
+// 清除范围：localStorage、sessionStorage、当前域可访问的 Cookie，以及 Cache Storage（若可用）。
+async function clearAllCache() {
+  const ok = window.confirm('确定要清理本地全部缓存吗？\n\n将清除：\n· localStorage（已保存的对比规则、主键、回填字段等）\n· sessionStorage\n· 当前页面可访问的 Cookie\n\n清理后页面将自动刷新。');
+  if (!ok) return;
+
+  // 1. localStorage / sessionStorage
+  try { localStorage.clear(); } catch (_) {}
+  try { sessionStorage.clear(); } catch (_) {}
+
+  // 2. Cookie：逐个置空并设置过期时间，兼顾根路径与各级 path
+  try {
+    document.cookie.split(';').forEach((c) => {
+      const name = c.split('=')[0].trim();
+      if (!name) return;
+      const expire = 'expires=Thu, 01 Jan 1970 00:00:00 GMT';
+      document.cookie = `${name}=;${expire};path=/`;
+      document.cookie = `${name}=;${expire};path=${location.pathname}`;
+      document.cookie = `${name}=;${expire}`;
+      // 同时尝试按当前域清除
+      if (location.hostname) {
+        document.cookie = `${name}=;${expire};path=/;domain=${location.hostname}`;
+      }
+    });
+  } catch (_) {}
+
+  // 3. Cache Storage（Service Worker / PWA 缓存，若浏览器支持）
+  try {
+    if (window.caches && caches.keys) {
+      const keys = await caches.keys();
+      await Promise.all(keys.map((k) => caches.delete(k)));
+    }
+  } catch (_) {}
+
+  alert('本地缓存已清理完成，页面将刷新。');
+  // 刷新页面以重置内存中的状态
+  location.reload();
+}
 
 // 本地文件读取：将文件内容读入对应文本框
 function readLocalFile(file, targetEl, statEl, side) {

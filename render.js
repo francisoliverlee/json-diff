@@ -33,12 +33,17 @@ function fmtValue(v) {
 // key 展示：数组下标用 [i]，对象用 key；主键模式下数组项 key 形如 "pk=value"
 function fmtKey(node, isArrayItem) {
   if (isArrayItem) {
-    // 主键模式：key 是字符串 "字段=值"，高亮主键值
+    // 主键模式：key 是字符串 "字段=值"（复合主键为 "字段1=值1, 字段2=值2"），高亮每段主键
     if (typeof node.key === 'string' && node.key.includes('=')) {
-      const eq = node.key.indexOf('=');
-      const field = node.key.slice(0, eq);
-      const val = node.key.slice(eq + 1);
-      return `<span class="text-slate-400">[</span><span class="text-indigo-500">${esc(field)}</span><span class="text-slate-400">=</span><span class="text-indigo-700 font-semibold">${esc(val)}</span><span class="text-slate-400">]</span>`;
+      // 复合主键按 ", " 拆分为多段，逐段渲染 字段=值
+      const segs = node.key.split(', ').map(seg => {
+        const eq = seg.indexOf('=');
+        if (eq < 0) return `<span class="text-indigo-700 font-semibold">${esc(seg)}</span>`;
+        const field = seg.slice(0, eq);
+        const val = seg.slice(eq + 1);
+        return `<span class="text-indigo-500">${esc(field)}</span><span class="text-slate-400">=</span><span class="text-indigo-700 font-semibold">${esc(val)}</span>`;
+      });
+      return `<span class="text-slate-400">[</span>${segs.join('<span class="text-slate-400">, </span>')}<span class="text-slate-400">]</span>`;
     }
     return `<span class="text-slate-400">[${node.key}]</span>`;
   }
@@ -58,15 +63,48 @@ function isAllSame(node) {
 }
 
 /**
+ * statusFilter 过滤：判断某棵子树在当前状态过滤下是否「完全没有可展示内容」。
+ * filter 为一个集合（Set），包含当前勾选要展示的状态：'added' | 'removed' | 'changed' | 'same'。
+ * - 叶子 value 节点：其 status 不在 filter 中即应被过滤（无内容）。
+ * - 整块 added/removed 的对象/数组：同理按自身 status 判断。
+ * - 普通容器节点：当其所有子节点都被过滤时，自身也无内容可展示。
+ * @returns true 表示该节点在当前过滤下应被隐藏（无任何可展示内容）
+ */
+function isFilteredOut(node, filter) {
+  if (!filter) return false; // 无过滤集合 = 全部展示
+
+  const isLeaf = node.type === 'value';
+  const isWholeContainer = (node.type === 'object' || node.type === 'array')
+    && (node.status === 'added' || node.status === 'removed');
+
+  if (isLeaf || isWholeContainer) {
+    return !filter.has(node.status);
+  }
+
+  // 普通容器：若所有子节点都被过滤，则该容器也无内容
+  const children = node.children || [];
+  if (children.length === 0) {
+    return !filter.has(node.status);
+  }
+  return children.every(c => isFilteredOut(c, filter));
+}
+
+/**
  * 渲染单个节点
  * @param {DiffNode} node
  * @param {object} opts { hideSame }
  * @param {boolean} isArrayItem 父节点是否数组
  * @param {number} depth 缩进深度
  */
+// 容器节点自增 id，保证折叠/展开能精确定位到「本节点自己的直接子级」
+let __nodeSeq = 0;
+
 function renderNode(node, opts, isArrayItem, depth) {
   // 隐藏相同项
   if (opts.hideSame && isAllSame(node)) return '';
+
+  // 状态过滤（图例复选框）：当前节点在过滤下完全无可展示内容则跳过
+  if (opts.statusFilter && isFilteredOut(node, opts.statusFilter)) return '';
 
   const style = STATUS_STYLE[node.status] || STATUS_STYLE.parent;
   const pad = depth * 18;
@@ -82,8 +120,8 @@ function renderNode(node, opts, isArrayItem, depth) {
       .map(c => renderNode(c, opts, node.type === 'array', depth + 1))
       .join('');
 
-    // 子节点全被隐藏则不显示该父节点
-    if (opts.hideSame && childrenHtml.trim() === '' && node.status === 'same') return '';
+    // 子节点全被隐藏（隐藏相同 / 状态过滤）则不显示该父节点（根节点除外，根始终保留容器）
+    if (childrenHtml.trim() === '' && node.key !== 'root') return '';
 
     const meta = node.meta || {};
     let metaTag = '';
@@ -97,7 +135,20 @@ function renderNode(node, opts, isArrayItem, depth) {
       const cntCls = meta.lengthEqual ? 'text-slate-400' : 'text-amber-600 font-semibold';
       metaTag = `<span class="ml-2 text-xs ${cntCls}">长度 A:${meta.leftLength} / B:${meta.rightLength}${meta.lengthEqual ? '' : ' ⚠'}</span>`;
       if (meta.matchKey) {
-        metaTag += `<span class="ml-2 text-xs bg-indigo-100 text-indigo-700 px-1.5 rounded">按主键「${esc(meta.matchKey)}」对比</span>`;
+        // matchKey 单主键为字符串，复合主键为数组：统一为字段数组后用「+」连接展示
+        const keyFields = Array.isArray(meta.matchKey) ? meta.matchKey : [meta.matchKey];
+        const keyLabel = keyFields.map(f => esc(f)).join(' + ');
+        const keyTitle = keyFields.length > 1 ? '复合主键' : '主键';
+        metaTag += `<span class="ml-2 text-xs bg-indigo-100 text-indigo-700 px-1.5 rounded">按${keyTitle}「${keyLabel}」对比</span>`;
+        // 按主键去重后的长度（同一主键值的重复元素只计一次），与原始长度并列展示
+        if (meta.leftUniqueCount !== undefined && meta.rightUniqueCount !== undefined) {
+          const uCls = meta.uniqueCountEqual ? 'text-slate-400' : 'text-amber-600 font-semibold';
+          metaTag += `<span class="ml-2 text-xs ${uCls}" title="按主键去重后的元素数量">去重长度 A:${meta.leftUniqueCount} / B:${meta.rightUniqueCount}${meta.uniqueCountEqual ? '' : ' ⚠'}</span>`;
+        }
+      }
+      // 需求：数组元素个数不同 → 归为「值不同」，加徽章明确提示
+      if (meta.lengthChanged) {
+        metaTag += `<span class="ml-2 text-xs bg-amber-200 text-amber-700 px-1.5 rounded"><i class="ri-error-warning-line"></i> 值不同(个数)</span>`;
       }
     }
 
@@ -106,16 +157,25 @@ function renderNode(node, opts, isArrayItem, depth) {
       ? `<span class="text-indigo-600 font-bold">根节点</span>`
       : fmtKey(node, isArrayItem);
 
+    const hasDiff = node.status !== 'same';
+    const nid = ++__nodeSeq;
+    // 初始折叠态：直接由「折叠所有节点」开关决定 —— 勾选则折叠全部可折叠节点（含差异节点），
+    // 取消则全部展开。这样开关对任何节点都即时生效，符合用户直觉。
+    // （此前曾让含差异分支强制展开，导致默认隐藏相同模式下可见节点几乎都是含差异节点，
+    //   开关对它们恒不生效、表现为「点击折叠所有节点纹丝不动」，故移除该特例。）
+    const collapsed = !!opts.collapseAll;
+    const childHidden = collapsed ? ' hidden' : '';
+    const iconCls = collapsed ? 'ri-arrow-right-s-line' : 'ri-arrow-down-s-line';
     return `
-      <div class="diff-node" style="padding-left:${pad}px">
+      <div class="diff-node" data-has-diff="${hasDiff ? '1' : '0'}" style="padding-left:${pad}px">
         <div class="flex items-center gap-1 py-1 group">
-          <i class="ri-arrow-down-s-line text-slate-400 toggle-icon cursor-pointer"></i>
+          <i class="${iconCls} text-slate-400 toggle-icon cursor-pointer" data-toggle="${nid}"></i>
           ${keyLabel}
           <span class="text-slate-400">: ${bracket}</span>
           ${metaTag}
           ${node.meta && node.meta.changedCount ? `<span class="ml-2 text-xs bg-amber-100 text-amber-700 px-1.5 rounded">${node.meta.changedCount} 处差异</span>` : ''}
         </div>
-        <div class="node-children border-l border-slate-200 ml-1">
+        <div class="node-children border-l border-slate-200 ml-1${childHidden}" data-children="${nid}">
           ${childrenHtml}
         </div>
       </div>`;
@@ -196,40 +256,41 @@ function renderValueNode(node, opts, isArrayItem, depth, style) {
  * 渲染整棵差异树到容器
  */
 export function renderDiff(container, rootNode, opts) {
+  __nodeSeq = 0; // 每次渲染重置节点计数
   const html = renderNode(rootNode, opts, false, 0);
-  if (opts.hideSame && html.trim() === '') {
-    container.innerHTML = `<div class="text-center text-emerald-500 py-12"><i class="ri-checkbox-circle-line text-4xl block mb-2"></i>两侧 JSON 完全一致（无差异）</div>`;
+  if (html.trim() === '') {
+    // 区分「无差异」与「被筛选/隐藏后无内容」
+    const filtered = opts.statusFilter && opts.statusFilter.size < 4;
+    if (filtered) {
+      container.innerHTML = `<div class="text-center text-slate-400 py-12"><i class="ri-filter-off-line text-4xl block mb-2"></i>当前筛选条件下没有可展示的内容<br/><span class="text-xs">请在上方勾选要展示的差异类型</span></div>`;
+    } else {
+      container.innerHTML = `<div class="text-center text-emerald-500 py-12"><i class="ri-checkbox-circle-line text-4xl block mb-2"></i>两侧 JSON 完全一致（无差异）</div>`;
+    }
     return;
   }
   container.innerHTML = html;
+  // 初始折叠态已在渲染期通过 class 写好（含差异分支展开 / 纯相同分支折叠）
   bindToggle(container);
-  // 根据"折叠所有节点"开关应用初始折叠状态
-  applyCollapseAll(container, !!opts.collapseAll);
 }
 
-// 折叠/展开全部节点
-function applyCollapseAll(container, collapsed) {
-  container.querySelectorAll('.diff-node').forEach(node => {
-    const children = node.querySelector(':scope > .node-children');
-    const icon = node.querySelector(':scope > div > .toggle-icon');
-    if (!children || !icon) return;
-    children.classList.toggle('hidden', collapsed);
+// 折叠/展开交互：采用「事件委托」绑定到容器本身，
+// 这样无论差异树如何重渲染、图标内部结构如何，点击 .toggle-icon 都能稳定触发，
+// 不会出现重复绑定或绑定丢失导致的「点击无效」。
+function bindToggle(container) {
+  // 防止重复绑定：同一容器只委托一次
+  if (container.__toggleBound) return;
+  container.__toggleBound = true;
+
+  container.addEventListener('click', (e) => {
+    const icon = e.target.closest('.toggle-icon[data-toggle]');
+    if (!icon || !container.contains(icon)) return;
+    e.stopPropagation();
+    const id = icon.getAttribute('data-toggle');
+    const children = container.querySelector(`.node-children[data-children="${id}"]`);
+    if (!children) return;
+    const collapsed = children.classList.toggle('hidden');
     icon.classList.toggle('ri-arrow-down-s-line', !collapsed);
     icon.classList.toggle('ri-arrow-right-s-line', collapsed);
-  });
-}
-
-// 折叠/展开交互
-function bindToggle(container) {
-  container.querySelectorAll('.toggle-icon').forEach(icon => {
-    icon.addEventListener('click', () => {
-      const node = icon.closest('.diff-node');
-      const children = node.querySelector('.node-children');
-      if (!children) return;
-      const collapsed = children.classList.toggle('hidden');
-      icon.classList.toggle('ri-arrow-down-s-line', !collapsed);
-      icon.classList.toggle('ri-arrow-right-s-line', collapsed);
-    });
   });
 }
 
@@ -301,6 +362,20 @@ export function collectDiffPaths(rootNode) {
     }
 
     // 容器节点继续向下递归
+    // 需求：数组元素个数不同，归为「值不同」——为该数组本身记一条 changed
+    if (node.type === 'array' && node.meta && node.meta.lengthChanged) {
+      const fullPath = path || '(根)';
+      result.changed.push({
+        path: fullPath,
+        depth: (fullPath.match(/[.\[]/g) || []).length,
+        group: groupOf(fullPath),
+        status: 'changed',
+        left: `数组长度 ${node.meta.leftLength}`,
+        right: `数组长度 ${node.meta.rightLength}`,
+        reason: 'array-length',
+      });
+    }
+
     (node.children || []).forEach(c => {
       const childPath = joinPath(path, c, node.type === 'array');
       walk(c, childPath, node.type === 'array');

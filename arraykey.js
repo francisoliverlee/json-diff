@@ -1,8 +1,13 @@
 // arraykey.js —— 对象数组主键选择模块
 // 职责：
 //   1. 扫描两侧 JSON，找出所有「对象数组」及其路径，并提取候选主键字段
-//   2. 渲染右侧抽屉，让用户为每个对象数组选择对比主键
+//   2. 渲染右侧抽屉，让用户为每个对象数组选择对比主键（支持多选 = 复合主键）
 //   3. 不做任何默认主键推断，所有主键均由用户在第三步手动选择
+//
+// 主键值统一抽象：每个对象数组的主键为「字段名数组」keyFields:string[]
+//   - 空数组 [] 表示尚未选择
+//   - 含一个字段 = 单主键；含多个字段 = 复合主键（按字段顺序联合作为匹配键）
+//   - 为向后兼容历史持久化数据，下方 toKeyFields 同时接受旧的字符串格式
 
 function isPlainObj(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -11,6 +16,26 @@ function isPlainObj(v) {
 // 判断一个数组是否为「对象数组」（元素中至少有一个是普通对象）
 function isObjectArray(arr) {
   return Array.isArray(arr) && arr.some(isPlainObj);
+}
+
+/**
+ * 将任意形式的主键值归一化为「字段名数组」。
+ * 兼容：undefined / '' / 'field' / ['f1','f2'] 等多种历史与当前格式。
+ * @returns string[] 去重、去空后的字段数组
+ */
+export function toKeyFields(v) {
+  if (v === undefined || v === null) return [];
+  let arr;
+  if (Array.isArray(v)) arr = v.slice();
+  else if (typeof v === 'string') arr = v === '' ? [] : [v];
+  else return [];
+  // 去空、去重，保持原有顺序
+  const seen = new Set();
+  const out = [];
+  arr.forEach(f => {
+    if (typeof f === 'string' && f !== '' && !seen.has(f)) { seen.add(f); out.push(f); }
+  });
+  return out;
 }
 
 /**
@@ -49,7 +74,8 @@ function collectObjectArrays(node, path, acc) {
 
 /**
  * 扫描左右两侧 JSON，合并得到所有对象数组的路径与候选字段。
- * @returns Array<{ path, label, fields:string[], defaultKey }>
+ * @returns Array<{ path, label, fields:string[], defaultKey, sample }>
+ *   defaultKey 为空数组（尚未选择，进入下一步前会被强制校验）
  */
 export function scanArrayKeys(left, right) {
   const acc = new Map();
@@ -61,37 +87,35 @@ export function scanArrayKeys(left, right) {
     .map(item => {
       const fields = Array.from(item.fields);
       // 不自动推断主键，也不允许按下标对比：每个对象数组都必须由用户在第三步手动选择主键。
-      // defaultKey 为空字符串仅表示「尚未选择」，进入下一步前会被强制校验。
-      const defaultKey = '';
+      // defaultKey 为空数组仅表示「尚未选择」，进入下一步前会被强制校验。
+      const defaultKey = [];
       return { path: item.path, label: item.label, fields, defaultKey, sample: item.sample };
     });
 }
 
 /**
  * 计算最终生效的主键映射：
- *   已有用户选择则沿用，否则用默认主键。
+ *   已有用户选择则沿用（仅保留仍存在的字段），否则用默认主键。
+ *   返回值统一为「字段数组」格式。
  */
 export function resolveKeyMap(arrays, savedMap = {}) {
   const map = {};
   arrays.forEach(a => {
-    const saved = savedMap[a.path];
-    // 校验保存的字段仍然存在
-    if (saved !== undefined && (saved === '' || a.fields.includes(saved))) {
-      map[a.path] = saved;
-    } else {
-      map[a.path] = a.defaultKey;
-    }
+    const savedFields = toKeyFields(savedMap[a.path]);
+    // 仅保留在当前数组字段中仍存在的主键字段
+    const valid = savedFields.filter(f => a.fields.includes(f));
+    map[a.path] = valid.length ? valid : toKeyFields(a.defaultKey);
   });
   return map;
 }
 
 /**
  * 渲染抽屉中的主键选择列表
- * 每个对象数组格式化展示第一个元素，字段行可点击选为对比主键（既预览又可选）。
+ * 每个对象数组格式化展示第一个元素，字段行可点击「切换选中」作为复合主键的一部分。
  * @param {HTMLElement} listEl 容器
  * @param {Array} arrays scanArrayKeys 结果
- * @param {Object} keyMap 当前主键映射
- * @param {Function} onChange (path, value) => void
+ * @param {Object} keyMap 当前主键映射 { path: string[] }
+ * @param {Function} onChange (path, fields:string[]) => void  传出更新后的完整字段数组
  */
 export function renderKeyChooser(listEl, arrays, keyMap, onChange) {
   if (!arrays.length) {
@@ -117,34 +141,39 @@ export function renderKeyChooser(listEl, arrays, keyMap, onChange) {
   }
 
   listEl.innerHTML = arrays.map((a, idx) => {
-    const current = keyMap[a.path] !== undefined ? keyMap[a.path] : a.defaultKey;
+    const current = toKeyFields(keyMap[a.path] !== undefined ? keyMap[a.path] : a.defaultKey);
     const sample = a.sample || {};
 
     // 仅顶层简单字段可作为主键（对象/数组字段不适合作主键，仅展示不可选）
     const rows = a.fields.map(f => {
       const v = sample[f];
       const selectable = v === null || (typeof v !== 'object');
-      const active = f === current;
+      const order = current.indexOf(f);     // 在复合主键中的序号（-1 表示未选）
+      const active = order >= 0;
       const base = 'flex items-center gap-2 px-2.5 py-1.5 rounded-md transition border';
       const cls = active
         ? `${base} bg-indigo-50 border-indigo-300 ring-1 ring-indigo-300`
         : (selectable
             ? `${base} border-transparent hover:bg-slate-100 cursor-pointer`
             : `${base} border-transparent opacity-60`);
-      const radio = selectable
-        ? `<i class="ri-${active ? 'checkbox-circle-fill text-indigo-600' : 'circle-line text-slate-300'} text-base shrink-0"></i>`
+      // 复选样式图标（多选）：选中显示带序号的方块，未选显示空心方块
+      const checkbox = selectable
+        ? (active
+            ? `<span class="shrink-0 w-4 h-4 rounded bg-indigo-600 text-white text-[10px] font-bold flex items-center justify-center">${order + 1}</span>`
+            : `<i class="ri-checkbox-blank-line text-slate-300 text-base shrink-0"></i>`)
         : `<i class="ri-forbid-2-line text-slate-300 text-base shrink-0" title="对象/数组字段不可作为主键"></i>`;
       return `
         <div class="key-field-row ${cls}" ${selectable ? `data-path="${a.path}" data-field="${escapeHtml(f)}"` : ''}>
-          ${radio}
+          ${checkbox}
           <span class="font-mono text-xs ${active ? 'text-indigo-700 font-semibold' : 'text-slate-600'} shrink-0">${escapeHtml(f)}</span>
           <span class="text-slate-400 text-xs">:</span>
           <span class="font-mono text-xs truncate flex-1">${fmtVal(v)}</span>
-          ${active ? '<span class="text-[10px] bg-indigo-600 text-white px-1.5 py-0.5 rounded shrink-0">主键</span>' : ''}
+          ${active ? `<span class="text-[10px] bg-indigo-600 text-white px-1.5 py-0.5 rounded shrink-0">主键 ${order + 1}</span>` : ''}
         </div>`;
     }).join('');
 
     const hasSample = a.fields.length && a.sample;
+    const keyText = current.map(escapeHtml).join('<span class="text-slate-400"> + </span>');
     return `
       <div class="key-array-block border border-slate-200 rounded-lg overflow-hidden transition-all duration-300" data-path="${a.path}" data-arr-index="${idx}" id="arrCard${idx}">
         <div class="flex items-center gap-2 px-3 py-2 bg-slate-50 border-b border-slate-200">
@@ -154,24 +183,33 @@ export function renderKeyChooser(listEl, arrays, keyMap, onChange) {
         </div>
         <div class="px-3 py-2">
           <div class="text-[11px] text-slate-400 mb-1.5 flex items-center gap-1">
-            <i class="ri-cursor-line"></i> 点击下方字段作为对比主键（展示第一个元素）
+            <i class="ri-cursor-line"></i> 点击下方字段作为对比主键（可多选组成<b class="text-indigo-500 mx-0.5">复合主键</b>，按点击顺序联合匹配）
           </div>
           <div class="space-y-1">
             ${hasSample ? rows : '<div class="text-xs text-slate-400 py-2">无可预览样本</div>'}
           </div>
           <div class="mt-2 pt-2 border-t border-dashed border-slate-200">
-            ${current === ''
-              ? `<div class="text-xs text-rose-500 flex items-center gap-1"><i class="ri-error-warning-line"></i> 请为该对象数组选择一个主键（必选，不可使用下标对比）</div>`
-              : `<div class="text-xs text-emerald-600 flex items-center gap-1"><i class="ri-checkbox-circle-line"></i> 已选主键：<span class="font-mono font-semibold">${escapeHtml(current)}</span></div>`}
+            ${current.length === 0
+              ? `<div class="text-xs text-rose-500 flex items-center gap-1"><i class="ri-error-warning-line"></i> 请为该对象数组选择至少一个主键字段（必选，不可使用下标对比）</div>`
+              : `<div class="text-xs text-emerald-600 flex items-center gap-1 flex-wrap"><i class="ri-checkbox-circle-line"></i> 已选${current.length > 1 ? '复合' : ''}主键：<span class="font-mono font-semibold">${keyText}</span></div>`}
           </div>
         </div>
       </div>`;
   }).join('');
 
-  // 点击字段行选为主键
+  // 点击字段行：切换该字段在复合主键中的「选中/取消」状态
   listEl.querySelectorAll('.key-field-row[data-field]').forEach(row => {
     row.addEventListener('click', () => {
-      onChange(row.dataset.path, row.dataset.field);
+      const path = row.dataset.path;
+      const field = row.dataset.field;
+      const cur = toKeyFields(keyMap[path] !== undefined ? keyMap[path] : (arrays.find(a => a.path === path) || {}).defaultKey);
+      let next;
+      if (cur.includes(field)) {
+        next = cur.filter(f => f !== field);  // 已选 -> 取消
+      } else {
+        next = cur.concat(field);             // 未选 -> 追加（保持点击顺序）
+      }
+      onChange(path, next);
       renderKeyChooser(listEl, arrays, keyMap, onChange); // 重渲染以刷新高亮
     });
   });

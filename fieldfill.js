@@ -17,6 +17,27 @@ function isObjectArray(arr) {
   return Array.isArray(arr) && arr.some(isPlainObj);
 }
 
+// ---------- 主键归一化（支持单主键 / 复合主键，与 diff.js 保持一致） ----------
+// 主键值可能是：'' / undefined（未选）、字符串（单主键）、字符串数组（复合主键）。
+// 统一转为「字段名数组」，空数组表示未选主键。
+function toKeyFields(v) {
+  if (Array.isArray(v)) return v.filter(s => typeof s === 'string' && s !== '');
+  if (typeof v === 'string' && v !== '') return [v];
+  return [];
+}
+
+// 由一个对象元素 + 主键字段数组，生成用于匹配的复合键值。
+// 任一主键字段缺失则返回 undefined（不可匹配）。
+function compositeKeyOf(item, fields) {
+  if (!isPlainObj(item) || !fields.length) return undefined;
+  const parts = [];
+  for (const f of fields) {
+    if (item[f] === undefined) return undefined;
+    parts.push(String(item[f]));
+  }
+  return parts.join('\u0001');
+}
+
 // 值的简短预览
 export function previewValue(v) {
   if (v === undefined) return '（缺失）';
@@ -58,8 +79,8 @@ export function scanLeftPaths(left, arrayKeyMap = {}) {
         const childPath = path ? `${path}.${k}` : k;
         const v = node[k];
         const isArrItemField = !!arrayCtx;
-        const pkField = arrayCtx ? arrayKeyMap[arrayCtx] : undefined;
-        const isPk = isArrItemField && pkField !== undefined && pkField !== '' && k === pkField;
+        const pkFields = arrayCtx ? toKeyFields(arrayKeyMap[arrayCtx]) : [];
+        const isPk = isArrItemField && pkFields.includes(k);
         add(childPath, {
           fieldName: k,
           arrayPath: arrayCtx || '',
@@ -154,8 +175,8 @@ function fillOnePath(leftRoot, rightRoot, path, arrayKeyMap, logs) {
     } else if (tk.kind === 'arr') {
       // 当前 leftNode/rightNode 应为「对象数组」字段值（数组）
       if (!Array.isArray(leftNode) || !Array.isArray(rightNode)) return;
-      const pk = arrayKeyMap[tk.arrayPath];
-      if (!pk) {
+      const pkFields = toKeyFields(arrayKeyMap[tk.arrayPath]);
+      if (!pkFields.length) {
         // 无主键：按下标对齐
         const len = Math.min(leftNode.length, rightNode.length);
         for (let i = 0; i < len; i++) {
@@ -163,17 +184,19 @@ function fillOnePath(leftRoot, rightRoot, path, arrayKeyMap, logs) {
         }
         return;
       }
-      // 有主键：构建右侧主键索引
+      // 有（复合）主键：构建右侧复合键索引
       const rightIndex = new Map();
       rightNode.forEach(item => {
-        if (isPlainObj(item) && item[pk] !== undefined) rightIndex.set(String(item[pk]), item);
+        const k = compositeKeyOf(item, pkFields);
+        if (k !== undefined) rightIndex.set(k, item);
       });
       leftNode.forEach(litem => {
-        if (!isPlainObj(litem) || litem[pk] === undefined) return;
-        const keyVal = String(litem[pk]);
+        const keyVal = compositeKeyOf(litem, pkFields);
+        if (keyVal === undefined) return;
         const ritem = rightIndex.get(keyVal);
         if (ritem) {
-          recurse(litem, ritem, idx + 1, displayPath + `[${pk}=${keyVal}]`);
+          const label = pkFields.map(f => `${f}=${litem[f]}`).join(',');
+          recurse(litem, ritem, idx + 1, displayPath + `[${label}]`);
         }
         // 右侧无同主键对象：不创建新对象（仅回填字段，不改变对象数量）
       });

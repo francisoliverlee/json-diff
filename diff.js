@@ -47,6 +47,28 @@ function isPrimitive(v) {
   return k === 'number' || k === 'string' || k === 'boolean' || k === 'null' || k === 'undefined';
 }
 
+// ---------- 主键归一化（支持单主键 / 复合主键） ----------
+// 主键值可能是：'' / undefined（未选）、字符串（单主键）、字符串数组（复合主键）。
+// 统一转为「字段名数组」，空数组表示未选主键。
+function toKeyFields(v) {
+  if (Array.isArray(v)) return v.filter(s => typeof s === 'string' && s !== '');
+  if (typeof v === 'string' && v !== '') return [v];
+  return [];
+}
+
+// 由一个对象元素 + 主键字段数组，生成用于匹配的复合键值。
+// 任一主键字段在该元素上缺失（undefined）则返回 undefined（视为不可匹配）。
+// 复合键用不可见分隔符连接，避免不同字段值拼接歧义。
+function compositeKeyOf(item, fields) {
+  if (!isPlainObject(item) || !fields.length) return undefined;
+  const parts = [];
+  for (const f of fields) {
+    if (item[f] === undefined) return undefined;
+    parts.push(String(item[f]));
+  }
+  return parts.join('\u0001');
+}
+
 // 常见时间格式正则集合：ISO8601、yyyy-MM-dd、yyyy/MM/dd HH:mm:ss、时间戳(10/13位) 等
 const TIME_PATTERNS = [
   /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?$/, // ISO8601
@@ -220,7 +242,7 @@ function diffObject(key, left, right, opts, path) {
 function diffArray(key, left, right, opts, path) {
   const childPath = path; // 数组本身的路径即用于匹配 arrayKeys
   const arrayKeys = opts.arrayKeys || {};
-  const pk = arrayKeys[childPath]; // 主键字段；undefined 或 '' 表示按下标
+  const pkFields = toKeyFields(arrayKeys[childPath]); // 主键字段数组；空数组表示按下标
 
   // 元素子节点的递归路径：数组内层用 path[] 占位（与 arraykey.js 扫描一致）
   const elemPath = childPath ? `${childPath}[]` : '[]';
@@ -228,9 +250,9 @@ function diffArray(key, left, right, opts, path) {
   // 判断是否为对象数组（任一侧元素含普通对象）
   const isObjArr = (arr) => arr.some(v => isPlainObject(v));
 
-  // ---- 按主键对比对象数组 ----
-  if (pk && (isObjArr(left) || isObjArr(right))) {
-    return diffArrayByKey(key, left, right, opts, elemPath, pk);
+  // ---- 按（复合）主键对比对象数组 ----
+  if (pkFields.length && (isObjArr(left) || isObjArr(right))) {
+    return diffArrayByKey(key, left, right, opts, elemPath, pkFields);
   }
 
   // ---- 默认：按下标顺序对比 ----
@@ -275,6 +297,7 @@ function diffArray(key, left, right, opts, path) {
       leftLength: left.length,
       rightLength: right.length,
       lengthEqual: left.length === right.length,
+      lengthChanged: left.length !== right.length,
       changedCount,
     }
   };
@@ -285,13 +308,18 @@ function diffArray(key, left, right, opts, path) {
  * 同键的对象整体按对象规则对比；仅一侧存在的标记 added/removed。
  * 展示顺序：左侧顺序优先，右侧新增的追加在后。
  */
-function diffArrayByKey(key, left, right, opts, elemPath, pk) {
-  const keyOf = (item) => (isPlainObject(item) && item[pk] !== undefined) ? String(item[pk]) : undefined;
+function diffArrayByKey(key, left, right, opts, elemPath, pkFields) {
+  // 生成用于匹配的复合键值（任一主键字段缺失则不可匹配）
+  const keyOf = (item) => compositeKeyOf(item, pkFields);
+  // 生成用于展示的 childKey：形如 "id=1, name=a"（复合主键各字段=值）
+  const labelOf = (item) => pkFields.map(f => `${f}=${item[f]}`).join(', ');
 
   const leftMap = new Map();
   const rightMap = new Map();
-  left.forEach(item => { const k = keyOf(item); if (k !== undefined) leftMap.set(k, item); });
-  right.forEach(item => { const k = keyOf(item); if (k !== undefined) rightMap.set(k, item); });
+  const leftLabel = new Map();  // 复合键 -> 展示标签
+  const rightLabel = new Map();
+  left.forEach(item => { const k = keyOf(item); if (k !== undefined) { leftMap.set(k, item); leftLabel.set(k, labelOf(item)); } });
+  right.forEach(item => { const k = keyOf(item); if (k !== undefined) { rightMap.set(k, item); rightLabel.set(k, labelOf(item)); } });
 
   // 主键展示顺序：左侧出现顺序 + 右侧独有
   const order = [];
@@ -305,7 +333,8 @@ function diffArrayByKey(key, left, right, opts, elemPath, pk) {
   for (const k of order) {
     const hasL = leftMap.has(k);
     const hasR = rightMap.has(k);
-    const childKey = `${pk}=${k}`; // 用主键标识替代下标展示
+    // 用复合主键标识替代下标展示（优先用左侧标签，无则用右侧）
+    const childKey = leftLabel.get(k) !== undefined ? leftLabel.get(k) : rightLabel.get(k);
 
     if (hasL && !hasR) {
       children.push({
@@ -337,8 +366,13 @@ function diffArrayByKey(key, left, right, opts, elemPath, pk) {
       leftLength: left.length,
       rightLength: right.length,
       lengthEqual: left.length === right.length,
+      lengthChanged: left.length !== right.length,
       changedCount,
-      matchKey: pk, // 标记此数组按主键对比
+      matchKey: pkFields.length === 1 ? pkFields[0] : pkFields.slice(), // 单主键为字符串，复合主键为数组
+      // 按主键去重后的元素数量（同一主键值的多个元素仅计一次）
+      leftUniqueCount: leftMap.size,
+      rightUniqueCount: rightMap.size,
+      uniqueCountEqual: leftMap.size === rightMap.size,
     }
   };
 }

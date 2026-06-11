@@ -82,6 +82,16 @@
       </ol>
     </nav>
 
+    <!-- 工具栏 -->
+    <div class="bg-white rounded-xl shadow-sm border border-slate-200 px-4 py-2.5 flex items-center gap-3 flex-wrap">
+      <span class="text-xs text-slate-400 flex items-center gap-1"><i class="ri-tools-line"></i> 工具</span>
+      <button id="btnClearCache" type="button"
+        class="inline-flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg border border-rose-200 text-rose-600 bg-rose-50 hover:bg-rose-100 transition">
+        <i class="ri-delete-bin-6-line"></i> 清理缓存
+      </button>
+      <span class="text-[11px] text-slate-400">清除本工具在本地存储的全部数据（Cookie、localStorage、sessionStorage 等）</span>
+    </div>
+
     <!-- ========== 第1步：对比规则 ========== -->
     <section class="step-panel" data-step="1">
       <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
