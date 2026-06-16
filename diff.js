@@ -1,7 +1,7 @@
 // diff.js —— JSON 对比核心算法模块
 // 严格按照需求规则实现：
 //   1. 对象对比：先比 key 数量；数量相同再比 key 是否一致；相同 key 再比 value 差异
-//   2. 数组对比：先比个数；简单类型按下标对比；对象数组按对象规则对比
+//   2. 数组对比：先比个数；简单类型数组仅按元素个数对比；对象数组按对象规则对比
 //   3. 支持选项：忽略大小写 / 忽略时间格式差异 / （隐藏相同项由渲染层处理）
 
 /**
@@ -97,6 +97,8 @@ function timeEqual(a, b) {
   return false;
 }
 
+// 简单类型数组只按长度对比，不比较具体元素值。
+
 /**
  * 比较两个简单值是否相等（考虑选项）
  * @param {*} a 左值
@@ -183,6 +185,8 @@ function diffValue(key, left, right, opts, path) {
 function diffObject(key, left, right, opts, path) {
   const leftKeys = Object.keys(left);
   const rightKeys = Object.keys(right);
+  const objectKeyFields = toKeyFields((opts.arrayKeys || {})[path]);
+  const objectKeyChanged = objectKeyFields.some(f => !primitiveEqual(left[f], right[f], opts));
 
   // 合并所有 key 并按字母升序（需求 3.2）
   const allKeys = Array.from(new Set([...leftKeys, ...rightKeys]))
@@ -228,6 +232,8 @@ function diffObject(key, left, right, opts, path) {
       sameKeys: leftKeys.length === rightKeys.length &&
         leftKeys.slice().sort().join(',') === rightKeys.slice().sort().join(','),
       changedCount,
+      objectMatchKey: objectKeyFields.length ? (objectKeyFields.length === 1 ? objectKeyFields[0] : objectKeyFields.slice()) : undefined,
+      objectKeyChanged,
     }
   };
 }
@@ -235,9 +241,9 @@ function diffObject(key, left, right, opts, path) {
 /**
  * 数组对比规则：
  *   2. 主要对比数组个数
- *   2.1 简单类型元素：按下标顺序对比
+ *   2.1 简单类型数组：仅按元素个数对比，不比较具体元素值
  *   2.2 对象数组：按对象对比规则对比
- * 展示需求：按数组下标顺序输出（这里即保持下标顺序）
+ * 展示需求：对象数组按主键顺序输出；简单数组仅展示长度差异
  */
 function diffArray(key, left, right, opts, path) {
   const childPath = path; // 数组本身的路径即用于匹配 arrayKeys
@@ -250,44 +256,56 @@ function diffArray(key, left, right, opts, path) {
   // 判断是否为对象数组（任一侧元素含普通对象）
   const isObjArr = (arr) => arr.some(v => isPlainObject(v));
 
+  const hasObjectItem = isObjArr(left) || isObjArr(right);
+
   // ---- 按（复合）主键对比对象数组 ----
-  if (pkFields.length && (isObjArr(left) || isObjArr(right))) {
+  if (hasObjectItem) {
+    if (!pkFields.length) {
+      throw makeNoArrayKeyError(childPath);
+    }
     return diffArrayByKey(key, left, right, opts, elemPath, pkFields);
   }
 
-  // ---- 默认：按下标顺序对比 ----
-  const maxLen = Math.max(left.length, right.length);
-  const children = [];
-  let changedCount = 0;
+  const hasNestedArrayItem = left.some(Array.isArray) || right.some(Array.isArray);
+  let children;
+  let changedCount;
 
-  for (let i = 0; i < maxLen; i++) {
-    const hasL = i < left.length;
-    const hasR = i < right.length;
-
-    if (hasL && !hasR) {
-      const v = left[i];
-      children.push({
-        key: i, type: kindOf(v) === 'array' ? 'array' : (isPlainObject(v) ? 'object' : 'value'),
-        status: 'removed', left: v, right: undefined, children: [], meta: {}
-      });
-      changedCount++;
-    } else if (!hasL && hasR) {
-      const v = right[i];
-      children.push({
-        key: i, type: kindOf(v) === 'array' ? 'array' : (isPlainObject(v) ? 'object' : 'value'),
-        status: 'added', left: undefined, right: v, children: [], meta: {}
-      });
-      changedCount++;
-    } else {
-      // 下标都存在：递归对比（对象数组会进入 diffObject，简单类型进入简单比较）
-      const child = diffValue(i, left[i], right[i], opts, elemPath);
-      if (child.status !== 'same') changedCount++;
-      children.push(child);
+  if (hasNestedArrayItem) {
+    // 非对象数组但包含嵌套数组时，保留递归按位置对比，避免把数组元素序列化为简单值。
+    const maxLen = Math.max(left.length, right.length);
+    children = [];
+    changedCount = 0;
+    for (let i = 0; i < maxLen; i++) {
+      const hasL = i < left.length;
+      const hasR = i < right.length;
+      if (hasL && !hasR) {
+        const v = left[i];
+        children.push({
+          key: i, type: kindOf(v) === 'array' ? 'array' : (isPlainObject(v) ? 'object' : 'value'),
+          status: 'removed', left: v, right: undefined, children: [], meta: {}
+        });
+        changedCount++;
+      } else if (!hasL && hasR) {
+        const v = right[i];
+        children.push({
+          key: i, type: kindOf(v) === 'array' ? 'array' : (isPlainObject(v) ? 'object' : 'value'),
+          status: 'added', left: undefined, right: v, children: [], meta: {}
+        });
+        changedCount++;
+      } else {
+        const child = diffValue(i, left[i], right[i], opts, elemPath);
+        if (child.status !== 'same') changedCount++;
+        children.push(child);
+      }
     }
+  } else {
+    // ---- 简单类型数组：只比较元素个数，不比较具体元素值 ----
+    children = [];
+    changedCount = left.length === right.length ? 0 : 1;
   }
 
-  // 双方长度相同且所有子节点都相同（含双方均为空数组）视为相同
-  const status = left.length === right.length && children.every(c => c.status === 'same')
+  // 简单类型数组只看长度；嵌套数组则要求递归子节点也相同。
+  const status = left.length === right.length && changedCount === 0
     ? 'same' : 'parent';
 
   return {

@@ -58,7 +58,7 @@ export function previewValue(v) {
  * 扫描左侧 JSON，收集所有「字段路径」。
  * 每个对象数组下层的元素字段以 path[] 占位聚合，避免按下标爆炸。
  * @param {*} left 左侧 JSON 对象
- * @param {Object} arrayKeyMap { 数组路径: 主键字段 }，用于标记/排除主键
+ * @param {Object} arrayKeyMap { 数组路径: 主键字段 }，用于标记字段是否为主键
  * @returns Array<{ path, fieldName, arrayPath, isArrayItemField, isPrimaryKey, type, sampleValue }>
  *   - path：规范化路径（可读 + 用于回填匹配）
  *   - arrayPath：该字段所属的对象数组路径（若该字段位于对象数组元素内），否则 ''
@@ -184,21 +184,27 @@ function fillOnePath(leftRoot, rightRoot, path, arrayKeyMap, logs) {
         }
         return;
       }
-      // 有（复合）主键：构建右侧复合键索引
-      const rightIndex = new Map();
-      rightNode.forEach(item => {
+      // 有（复合）主键：按主键分组，支持同一主键出现多次。
+      // 回填以右侧对象为驱动：右侧同主键有多个对象时，依次匹配左侧同组对象；
+      // 若右侧数量多于左侧数量，则复用左侧同组最后一个对象，确保右侧已有对象都能被回填。
+      const leftGroups = new Map();
+      leftNode.forEach(item => {
         const k = compositeKeyOf(item, pkFields);
-        if (k !== undefined) rightIndex.set(k, item);
+        if (k === undefined) return;
+        if (!leftGroups.has(k)) leftGroups.set(k, []);
+        leftGroups.get(k).push(item);
       });
-      leftNode.forEach(litem => {
-        const keyVal = compositeKeyOf(litem, pkFields);
+      const rightSeen = new Map();
+      rightNode.forEach(ritem => {
+        const keyVal = compositeKeyOf(ritem, pkFields);
         if (keyVal === undefined) return;
-        const ritem = rightIndex.get(keyVal);
-        if (ritem) {
-          const label = pkFields.map(f => `${f}=${litem[f]}`).join(',');
-          recurse(litem, ritem, idx + 1, displayPath + `[${label}]`);
-        }
-        // 右侧无同主键对象：不创建新对象（仅回填字段，不改变对象数量）
+        const group = leftGroups.get(keyVal);
+        if (!group || !group.length) return;
+        const localIndex = rightSeen.get(keyVal) || 0;
+        rightSeen.set(keyVal, localIndex + 1);
+        const litem = group[Math.min(localIndex, group.length - 1)];
+        const label = pkFields.map(f => `${f}=${ritem[f]}`).join(',');
+        recurse(litem, ritem, idx + 1, displayPath + `[${label}#${localIndex + 1}]`);
       });
     }
   }

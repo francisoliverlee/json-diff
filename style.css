@@ -5,20 +5,122 @@ textarea {
   tab-size: 2;
 }
 
+/* 左侧隐藏工具栏 */
+.tool-dock {
+  transform: translateY(-50%);
+}
+
+.tool-dock-panel {
+  animation: toolDockIn 0.18s ease;
+}
+
+@keyframes toolDockIn {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+
+/* CodeMirror JSON 编辑器 */
+.json-editor-shell {
+  position: relative;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.json-editor-shell .CodeMirror {
+  height: 100%;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  color: #334155;
+  border: 0;
+}
+
+.json-editor-shell .CodeMirror-gutters {
+  background: #f8fafc;
+  border-right: 1px solid #e2e8f0;
+}
+
+.json-editor-shell .CodeMirror-linenumber {
+  color: #94a3b8;
+}
+
+.json-editor-shell .CodeMirror-foldgutter {
+  width: 1.1em;
+}
+
+.json-editor-shell .CodeMirror-foldgutter-open,
+.json-editor-shell .CodeMirror-foldgutter-folded {
+  color: #64748b;
+  cursor: pointer;
+}
+
+.json-editor-shell .CodeMirror-selected {
+  background: rgba(99, 102, 241, 0.18) !important;
+}
+
+.json-editor-shell .CodeMirror-focused .CodeMirror-selected {
+  background: rgba(99, 102, 241, 0.24) !important;
+}
+
+.json-editor-shell .CodeMirror-matchingbracket {
+  color: #4f46e5 !important;
+  background: #eef2ff;
+  font-weight: 700;
+}
+
+.json-editor-shell .CodeMirror-dialog {
+  background: #ffffff;
+  border-bottom: 1px solid #e2e8f0;
+  color: #475569;
+  font-size: 12px;
+  padding: 8px 10px;
+}
+
+.json-editor-shell .CodeMirror-dialog input {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 4px 8px;
+  outline: none;
+}
+
+.json-editor-shell .CodeMirror-dialog input:focus {
+  border-color: #818cf8;
+  box-shadow: 0 0 0 1px #a5b4fc;
+}
+
 /* 滚动条美化 */
 #diffResult::-webkit-scrollbar,
+.CodeMirror-scrollbar-filler,
+.CodeMirror-gutter-filler,
+.CodeMirror-vscrollbar::-webkit-scrollbar,
+.CodeMirror-hscrollbar::-webkit-scrollbar,
 textarea::-webkit-scrollbar {
   width: 8px;
   height: 8px;
 }
 #diffResult::-webkit-scrollbar-thumb,
+.CodeMirror-vscrollbar::-webkit-scrollbar-thumb,
+.CodeMirror-hscrollbar::-webkit-scrollbar-thumb,
 textarea::-webkit-scrollbar-thumb {
   background: #cbd5e1;
   border-radius: 4px;
 }
 #diffResult::-webkit-scrollbar-thumb:hover,
+.CodeMirror-vscrollbar::-webkit-scrollbar-thumb:hover,
+.CodeMirror-hscrollbar::-webkit-scrollbar-thumb:hover,
 textarea::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
+}
+
+/* 加载状态 */
+.compare-spin {
+  display: inline-block;
+  animation: compareSpin 0.9s linear infinite;
+}
+
+@keyframes compareSpin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
 }
 
 /* 差异节点 hover 高亮 */
@@ -53,12 +155,30 @@ textarea::-webkit-scrollbar-thumb:hover {
   to   { opacity: 1; transform: translateY(0); }
 }
 
-/* 差异结果区全屏态：铺满视口、可滚动、白底 */
-#diffResult:fullscreen,
-#diffResult.fs-active {
+/* 差异结果全屏态：对比选项栏 + 结果区一起铺满视口 */
+#diffFullscreenWrap:fullscreen,
+#diffFullscreenWrap.fs-active {
   width: 100vw;
   height: 100vh;
-  max-height: 100vh;
+  background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+#diffFullscreenWrap.fs-active .fs-option-bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  box-shadow: 0 1px 0 rgba(148, 163, 184, 0.25);
+}
+
+#diffFullscreenWrap.fs-active #diffResult {
+  flex: 1 1 auto;
+  min-height: 0;
+  max-height: none;
+  height: auto;
   overflow: auto;
+  padding: 24px;
   background: #ffffff;
 }

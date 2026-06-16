@@ -131,6 +131,15 @@ function renderNode(node, opts, isArrayItem, depth) {
       if (meta.keyCountEqual && meta.sameKeys === false) {
         metaTag += `<span class="ml-2 text-xs text-amber-600">key不一致 ⚠</span>`;
       }
+      if (meta.objectMatchKey) {
+        const keyFields = Array.isArray(meta.objectMatchKey) ? meta.objectMatchKey : [meta.objectMatchKey];
+        const keyLabel = keyFields.map(f => esc(f)).join(' + ');
+        const keyTitle = keyFields.length > 1 ? '复合主键' : '主键';
+        metaTag += `<span class="ml-2 text-xs bg-violet-100 text-violet-700 px-1.5 rounded">对象按${keyTitle}「${keyLabel}」校验</span>`;
+        if (meta.objectKeyChanged) {
+          metaTag += `<span class="ml-2 text-xs bg-amber-200 text-amber-700 px-1.5 rounded"><i class="ri-error-warning-line"></i> 主键值不同</span>`;
+        }
+      }
     } else {
       const cntCls = meta.lengthEqual ? 'text-slate-400' : 'text-amber-600 font-semibold';
       metaTag = `<span class="ml-2 text-xs ${cntCls}">长度 A:${meta.leftLength} / B:${meta.rightLength}${meta.lengthEqual ? '' : ' ⚠'}</span>`;
@@ -159,11 +168,11 @@ function renderNode(node, opts, isArrayItem, depth) {
 
     const hasDiff = node.status !== 'same';
     const nid = ++__nodeSeq;
-    // 初始折叠态：直接由「折叠所有节点」开关决定 —— 勾选则折叠全部可折叠节点（含差异节点），
-    // 取消则全部展开。这样开关对任何节点都即时生效，符合用户直觉。
-    // （此前曾让含差异分支强制展开，导致默认隐藏相同模式下可见节点几乎都是含差异节点，
-    //   开关对它们恒不生效、表现为「点击折叠所有节点纹丝不动」，故移除该特例。）
-    const collapsed = !!opts.collapseAll;
+    // 初始折叠态：由「展开层级」控制。
+    // depth=0 为根节点；展开 N 层表示根节点下前 N 层 JSON 节点展开，N 层以下折叠。
+    // expandLevel=0 即「折叠全部」：根节点可见，所有子级 JSON 节点先折叠。
+    const expandLevel = Number.isFinite(Number(opts.expandLevel)) ? Number(opts.expandLevel) : 0;
+    const collapsed = node.key !== 'root' && depth >= expandLevel;
     const childHidden = collapsed ? ' hidden' : '';
     const iconCls = collapsed ? 'ri-arrow-right-s-line' : 'ri-arrow-down-s-line';
     return `

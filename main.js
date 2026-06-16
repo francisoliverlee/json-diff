@@ -12,6 +12,10 @@ const elResult = $('diffResult');
 const elStatLeft = $('statLeft');
 const elStatRight = $('statRight');
 const elLegend = $('legendBar');
+const jsonEditors = {
+  left: { textarea: elLeft, cm: null, syncing: false },
+  right: { textarea: elRight, cm: null, syncing: false },
+};
 
 // 左右两侧选择的文件名（路径/来源），用于展示与持久化
 let fileNames = { left: '', right: '' };
@@ -22,11 +26,11 @@ const LS_KEY = 'json-diff-state-v1';
 const LS_KEYSTORE = 'json-diff-arraykeys-v1';
 // 按「左侧文件名」分桶存储第5步已选回填字段：{ 左侧文件名: [字段路径...] }
 const LS_FILLSTORE = 'json-diff-fillfields-v1';
-const OPT_IDS = ['optIgnoreCase', 'optIgnoreTime', 'optHideSame', 'optCollapseAll', 'optStripPrefix'];
+const OPT_IDS = ['optIgnoreCase', 'optIgnoreTime', 'optHideSame', 'optExpandLevel', 'optStripPrefix'];
 
-// 各对象数组路径 -> 选中的对比主键
+// 各对象 / 对象数组路径 -> 选中的对比主键
 let arrayKeyMap = {};
-// 最近一次扫描到的对象数组列表
+// 最近一次扫描到的对象 / 对象数组列表
 let detectedArrays = [];
 
 // 计算字符串的简易哈希（djb2），用作文件内容指纹
@@ -45,7 +49,7 @@ function currentFileFingerprint() {
     try { return JSON.stringify(JSON.parse(text)); }
     catch (_) { return (text || '').trim(); }
   };
-  return hashText(norm(elLeft.value) + '\u0000' + norm(elRight.value));
+  return hashText(norm(getJsonEditorValue(elLeft)) + '\u0000' + norm(getJsonEditorValue(elRight)));
 }
 
 // 读取整个主键存储桶 { 指纹: {路径:主键} }
@@ -81,8 +85,9 @@ function persistKeysForCurrentFiles() {
 function fillBucketKey() {
   if (fileNames.left && fileNames.left.trim()) return 'name:' + fileNames.left.trim();
   const norm = (() => {
-    try { return JSON.stringify(JSON.parse(elLeft.value)); }
-    catch (_) { return (elLeft.value || '').trim(); }
+    const leftText = getJsonEditorValue(elLeft);
+    try { return JSON.stringify(JSON.parse(leftText)); }
+    catch (_) { return (leftText || '').trim(); }
   })();
   return 'fp:' + hashText(norm);
 }
@@ -118,6 +123,8 @@ let diffPaths = { added: [], removed: [], changed: [] };
 let statusFilter = new Set(['removed', 'added', 'changed', 'same']);
 // 最近一次计算得到的差异树（供图例状态过滤复选框切换时直接重渲染，无需重新 diff）
 let lastDiffTree = null;
+// 对比任务序号：用于 loading 异步调度时丢弃过期任务
+let compareJobSeq = 0;
 // 抽屉分页状态
 const PAGE_SIZE = 12;
 let drawerState = { type: null, list: [], page: 1 };
@@ -125,16 +132,27 @@ let drawerState = { type: null, list: [], page: 1 };
 // 当前步骤
 let currentStep = 1;
 const TOTAL_STEPS = 5;
+// JSON 对比支持的最大对象/数组容器层级，根对象/根数组计为第 1 层。
+const MAX_JSON_DEPTH = 10;
+
+function renderConfiguredLimits() {
+  const maxJsonDepthText = $('maxJsonDepthText');
+  if (maxJsonDepthText) maxJsonDepthText.textContent = String(MAX_JSON_DEPTH);
+}
 
 // 保存当前状态：开关 + 左右文本 + 主键映射
 function saveState() {
   try {
     const opts = {};
-    OPT_IDS.forEach(id => { const el = $(id); if (el) opts[id] = el.checked; });
+    OPT_IDS.forEach(id => {
+      const el = $(id);
+      if (!el) return;
+      opts[id] = el.tagName === 'SELECT' ? el.value : el.checked;
+    });
     const state = {
       opts,
-      left: elLeft.value,
-      right: elRight.value,
+      left: getJsonEditorValue(elLeft),
+      right: getJsonEditorValue(elRight),
       arrayKeys: arrayKeyMap,
       fileNames,
     };
@@ -151,7 +169,16 @@ function restoreState() {
     if (state.opts) {
       OPT_IDS.forEach(id => {
         const el = $(id);
-        if (el && typeof state.opts[id] === 'boolean') el.checked = state.opts[id];
+        if (!el) return;
+        if (el.tagName === 'SELECT') {
+          if (state.opts[id] !== undefined) {
+            el.value = String(state.opts[id]);
+          } else if (id === 'optExpandLevel' && typeof state.opts.optCollapseAll === 'boolean') {
+            el.value = state.opts.optCollapseAll ? '0' : String(MAX_JSON_DEPTH);
+          }
+        } else if (typeof state.opts[id] === 'boolean') {
+          el.checked = state.opts[id];
+        }
       });
     }
     if (state.arrayKeys && typeof state.arrayKeys === 'object') {
@@ -164,8 +191,8 @@ function restoreState() {
     const hasText = typeof state.left === 'string' && typeof state.right === 'string'
       && (state.left.trim() || state.right.trim());
     if (hasText) {
-      elLeft.value = state.left;
-      elRight.value = state.right;
+      setJsonEditorValue(elLeft, state.left);
+      setJsonEditorValue(elRight, state.right);
     }
     return !!hasText;
   } catch (_) {
@@ -174,9 +201,10 @@ function restoreState() {
 }
 
 // 返回「尚未选择主键」的对象数组路径列表。
-// 规则：每个对象数组都必须选择一个主键字段（非空），否则不允许进入后续步骤。
+// 规则：对象主键可选；对象数组必须选择至少一个主键字段，否则不允许进入后续步骤。
 function unselectedArrayPaths() {
   return (detectedArrays || [])
+    .filter(a => a.required)
     .filter(a => {
       const fields = toKeyFields(arrayKeyMap[a.path]);
       // 复合主键：必须至少选择一个字段，且所选字段均存在于该数组字段集合
@@ -188,13 +216,14 @@ function unselectedArrayPaths() {
 
 // 校验全部对象数组是否都已选主键；未通过则提示并定位到第一个未选数组，返回 false
 function ensureAllArrayKeys() {
-  // 需先有有效输入与已扫描的数组
+  // 需先有有效输入与已扫描的目标
   if (!detectedArrays || !detectedArrays.length) return true; // 无对象数组则无需选择
   const missing = unselectedArrayPaths();
   if (missing.length === 0) return true;
-  alert('请先为以下对象数组选择对比主键（不允许使用数组下标 / 字段下标）：\n\n' + missing.join('\n'));
-  // 定位到第一个未选主键的数组，便于用户操作
+  alert('请先为以下对象数组选择对比主键（对象主键可选；对象数组不允许使用数组下标 / 字段下标）：\n\n' + missing.join('\n'));
+  // 定位到第一个未选主键的对象数组，便于用户操作
   const idx = detectedArrays.findIndex(a => {
+    if (!a.required) return false;
     const fields = toKeyFields(arrayKeyMap[a.path]);
     return !(fields.length > 0 && fields.every(f => a.fields.includes(f)));
   });
@@ -205,11 +234,13 @@ function ensureAllArrayKeys() {
 // 读取当前开关选项
 function getOptions() {
   const checked = (id) => { const el = $(id); return el ? el.checked : false; };
+  const expandEl = $('optExpandLevel');
+  const expandLevel = expandEl ? Number(expandEl.value) : 0;
   return {
     ignoreCase: checked('optIgnoreCase'),
     ignoreTime: checked('optIgnoreTime'),
     hideSame: checked('optHideSame'),
-    collapseAll: checked('optCollapseAll'),
+    expandLevel: Number.isFinite(expandLevel) ? expandLevel : 0,
     arrayKeys: arrayKeyMap,
     statusFilter,
   };
@@ -236,6 +267,29 @@ function renderFileNames() {
       box.classList.remove('flex');
     }
   });
+}
+
+// 计算 JSON 最大层级：根对象/根数组计为第 1 层，仅对象/数组容器会增加层级。
+function maxJsonDepth(node, depth = 1) {
+  if (node === null || typeof node !== 'object') return depth;
+  const children = Array.isArray(node) ? node : Object.values(node);
+  if (!children.length) return depth;
+  return Math.max(...children.map(child => {
+    if (child !== null && typeof child === 'object') {
+      return maxJsonDepth(child, depth + 1);
+    }
+    return depth;
+  }));
+}
+
+// 层级超过配置上限后弹窗提示不支持。
+function ensureSupportedDepth(left, right) {
+  const leftDepth = maxJsonDepth(left);
+  const rightDepth = maxJsonDepth(right);
+  const maxDepth = Math.max(leftDepth, rightDepth);
+  if (maxDepth <= MAX_JSON_DEPTH) return true;
+  alert(`当前 JSON 层级为 ${maxDepth} 层，已超过最多支持的 ${MAX_JSON_DEPTH} 层，暂不支持对比。\n\n左侧层级：${leftDepth}\n右侧层级：${rightDepth}`);
+  return false;
 }
 
 // 解析单侧文本，返回 { ok, data, error }
@@ -308,6 +362,8 @@ function goStep(step) {
     }
   });
 
+  // 第2步：刷新 JSON 编辑器尺寸（从隐藏面板显示后需要重新测量）
+  if (step === 2) refreshJsonEditors();
   // 第3步：渲染主键选择器
   if (step === 3) prepareStep3();
   // 第4步：每次进入都重新对比
@@ -321,8 +377,8 @@ function goStep(step) {
 
 // 校验两侧输入是否可对比
 function validateInput() {
-  const left = parseSide(elLeft.value, elStatLeft);
-  const right = parseSide(elRight.value, elStatRight);
+  const left = parseSide(getJsonEditorValue(elLeft), elStatLeft);
+  const right = parseSide(getJsonEditorValue(elRight), elStatRight);
   if (!left.ok || !right.ok) {
     const msgs = [];
     if (left.error) msgs.push('左侧：' + left.error);
@@ -332,10 +388,13 @@ function validateInput() {
     alert('无法进入下一步：\n' + msgs.join('\n'));
     return null;
   }
+  if (!ensureSupportedDepth(left.data, right.data)) {
+    return null;
+  }
   return { left: left.data, right: right.data };
 }
 
-// 第3步准备：扫描对象数组并渲染主键选择
+// 第3步准备：扫描对象 / 对象数组并渲染主键选择
 function prepareStep3() {
   const parsed = validateInput();
   const list = $('keyList');
@@ -355,12 +414,12 @@ function prepareStep3() {
     arrayKeyMap[path] = value;
     saveState();
     persistKeysForCurrentFiles();
-    // renderKeyChooser 内部点击会重渲染列表，恢复当前数组高亮
+    // renderKeyChooser 内部点击会重渲染列表，恢复当前目标高亮
     if (detectedArrays.length > 1) {
-      // 将「当前数组」定位到刚选择的这个数组（用户可能点的不是当前高亮项）
+      // 将「当前目标」定位到刚选择的这个目标（用户可能点的不是当前高亮项）
       const selIdx = detectedArrays.findIndex(a => a.path === path);
       if (selIdx >= 0) curArrIndex = selIdx;
-      // 选定主键后，若还有后续数组则自动前进到下一个待选数组
+      // 选定主键后，若还有后续目标则自动前进到下一个目标
       if (curArrIndex < detectedArrays.length - 1) {
         curArrIndex += 1;
       }
@@ -372,7 +431,7 @@ function prepareStep3() {
   setupArrNav();
 }
 
-// ---------- 第3步：多数组快速切换导航 ----------
+// ---------- 第3步：多目标快速切换导航 ----------
 let curArrIndex = 0;
 
 function setupArrNav() {
@@ -421,13 +480,56 @@ function gotoArr(delta) {
 
 // 真正执行对比与渲染（第4步进入时调用）
 function runCompare() {
+  const jobId = ++compareJobSeq;
+  setCompareLoading(true, '正在加载并对比 JSON 数据…');
+
+  requestAnimationFrame(() => {
+    setTimeout(() => {
+      if (jobId !== compareJobSeq) return;
+      runCompareNow(jobId);
+    }, 0);
+  });
+}
+
+function setCompareLoading(loading, text) {
+  const btn = $('btnRecompare');
+  if (btn) {
+    btn.disabled = loading;
+    btn.classList.toggle('opacity-70', loading);
+    btn.classList.toggle('cursor-not-allowed', loading);
+    btn.innerHTML = loading
+      ? '<i class="ri-loader-4-line compare-spin"></i> 对比中…'
+      : '<i class="ri-refresh-line"></i> 重新对比';
+  }
+  if (loading) {
+    if (elLegend) {
+      elLegend.innerHTML = `<div class="lg:col-span-4 sm:col-span-2 border border-indigo-100 rounded-xl bg-indigo-50/60 px-4 py-3 text-sm text-indigo-700 flex items-center gap-2">
+        <i class="ri-loader-4-line compare-spin text-lg"></i>
+        <span>正在生成差异统计，请稍候…</span>
+      </div>`;
+    }
+    if (elResult) {
+      elResult.innerHTML = `<div class="compare-loading text-center py-16 text-indigo-600">
+        <div class="w-12 h-12 mx-auto mb-4 rounded-full bg-indigo-50 flex items-center justify-center">
+          <i class="ri-loader-4-line compare-spin text-3xl"></i>
+        </div>
+        <div class="font-semibold">${escHtml(text || '正在加载对比数据…')}</div>
+        <div class="text-xs text-slate-400 mt-2">大文件解析和渲染可能需要几秒，请不要关闭页面</div>
+      </div>`;
+    }
+  }
+}
+
+function runCompareNow(jobId) {
   const parsed = validateInput();
+  if (jobId !== compareJobSeq) return;
   if (!parsed) {
     elResult.innerHTML = `<div class="text-center text-rose-500 py-12">
       <i class="ri-error-warning-line text-4xl block mb-2"></i>
       无法对比，请返回第二步检查 JSON 输入
     </div>`;
     if (elLegend) elLegend.innerHTML = '';
+    setCompareLoading(false);
     return;
   }
 
@@ -438,7 +540,24 @@ function runCompare() {
   persistKeysForCurrentFiles();
 
   const opts = getOptions();
-  const tree = diffJSON(parsed.left, parsed.right, opts);
+  let tree;
+  try {
+    tree = diffJSON(parsed.left, parsed.right, opts);
+  } catch (e) {
+    const msg = e && e.message ? e.message : String(e);
+    if (e && e.code === 'NO_ARRAY_KEY') {
+      alert(msg);
+      goStep(3);
+    }
+    elResult.innerHTML = `<div class="text-center text-rose-500 py-12">
+      <i class="ri-error-warning-line text-4xl block mb-2"></i>
+      对比失败：${escHtml(msg)}
+    </div>`;
+    if (elLegend) elLegend.innerHTML = '';
+    setCompareLoading(false);
+    return;
+  }
+  if (jobId !== compareJobSeq) return;
   lastDiffTree = tree;
   renderDiff(elResult, tree, opts);
   saveState();
@@ -448,6 +567,7 @@ function runCompare() {
 
   const s = summarize(tree);
   renderLegend(s);
+  setCompareLoading(false);
 }
 
 // ---------- 第5步：字段回填 ----------
@@ -461,6 +581,11 @@ let lastFillResultText = '';
 let fillDiffPaths = { left: { added: [], removed: [], changed: [] }, right: { added: [], removed: [], changed: [] } };
 // 字段值统计弹窗状态
 let fieldStatState = { path: '', stats: [], total: 0, page: 1, pageSize: 10 };
+
+function normalizeFillPath(path) {
+  if (!path || path === '(根)') return '';
+  return String(path).replace(/\[[^\]]*\]/g, '[]');
+}
 
 // 进入第5步：扫描左侧字段并渲染列表
 function prepareStep5() {
@@ -481,8 +606,29 @@ function prepareStep5() {
   arrayKeyMap = resolveKeyMap(detectedArrays, Object.assign({}, savedForFiles, arrayKeyMap));
   persistKeysForCurrentFiles();
 
-  // 扫描左侧全部字段路径，排除主键字段
-  fillPaths = scanLeftPaths(parsed.left, arrayKeyMap).filter(p => !p.isPrimaryKey);
+  // 仅取当前对比结果中「值不同」的字段路径，排除主键字段。
+  // collectDiffPaths 的对象数组路径带具体主键定位，如 team[id=1].role；
+  // scanLeftPaths 的回填字段路径使用 [] 占位，如 team[].role，因此这里需要规范化后再匹配。
+  let changedPathSet;
+  try {
+    const tree = diffJSON(parsed.left, parsed.right, getOptions());
+    changedPathSet = new Set(collectDiffPaths(tree).changed.map(item => normalizeFillPath(item.path)));
+  } catch (e) {
+    const msg = e && e.message ? e.message : String(e);
+    if (e && e.code === 'NO_ARRAY_KEY') {
+      alert(msg);
+      goStep(3);
+    }
+    fillPaths = [];
+    fillSelected.clear();
+    if (wrap) wrap.innerHTML = `<div class="text-center text-rose-500 py-10"><i class="ri-error-warning-line text-3xl block mb-2"></i>生成值不同字段列表失败：${escHtml(msg)}</div>`;
+    hideFillResult();
+    updateFillSelCount();
+    return;
+  }
+
+  fillPaths = scanLeftPaths(parsed.left, arrayKeyMap)
+    .filter(p => !p.isPrimaryKey && changedPathSet.has(p.path));
 
   // 为每个字段计算「匹配总数」：即该字段单独回填到右侧时实际命中的处数
   // （复用 applyFieldFill 的回填逻辑，与执行替换时的真实结果完全一致）
@@ -557,7 +703,7 @@ function renderFillList() {
     const list = kw ? avail.filter(p => p.path.toLowerCase().includes(kw)) : avail;
 
     if (!fillPaths.length) {
-      availWrap.innerHTML = `<div class="text-center text-slate-400 py-10"><i class="ri-inbox-line text-3xl block mb-2"></i>左侧 JSON 中没有可回填的字段</div>`;
+      availWrap.innerHTML = `<div class="text-center text-slate-400 py-10"><i class="ri-inbox-line text-3xl block mb-2"></i>当前没有值不同且可回填的字段</div>`;
     } else if (!avail.length) {
       availWrap.innerHTML = `<div class="text-center text-emerald-500 py-10"><i class="ri-checkbox-circle-line text-3xl block mb-2"></i>全部字段均已加入右侧</div>`;
     } else if (!list.length) {
@@ -897,12 +1043,13 @@ function renderLegend(summary, legendEl, pathsData) {
 function doFormat() {
   [elLeft, elRight].forEach((el, i) => {
     const stat = i === 0 ? elStatLeft : elStatRight;
-    if (!el.value.trim()) return;
+    const text = getJsonEditorValue(el);
+    if (!text.trim()) return;
     try {
-      el.value = JSON.stringify(JSON.parse(el.value), null, 2);
-      parseSide(el.value, stat);
+      setJsonEditorValue(el, JSON.stringify(JSON.parse(text), null, 2));
+      parseSide(getJsonEditorValue(el), stat);
     } catch (e) {
-      parseSide(el.value, stat);
+      parseSide(getJsonEditorValue(el), stat);
     }
   });
 }
@@ -935,35 +1082,41 @@ const SAMPLE_RIGHT = {
 };
 
 // ---------- 差异结果全屏查看 ----------
-// 使用原生 Fullscreen API：进入全屏后调整内边距与最大高度以铺满屏幕；ESC 由浏览器原生支持退出
+// 使用原生 Fullscreen API：全屏目标包含「对比选项 + 差异结果」，便于全屏时继续操作选项。
+function getDiffFullscreenWrap() {
+  return $('diffFullscreenWrap') || elResult;
+}
+
 function toggleResultFullscreen() {
+  const wrap = getDiffFullscreenWrap();
   if (document.fullscreenElement) {
     document.exitFullscreen();
-  } else if (elResult && elResult.requestFullscreen) {
-    elResult.requestFullscreen().catch(() => {
+  } else if (wrap && wrap.requestFullscreen) {
+    wrap.requestFullscreen().catch(() => {
       alert('当前浏览器不支持全屏，或被安全策略阻止。');
     });
   }
 }
 
-// 同步全屏按钮文案/图标，并在全屏态下调整 #diffResult 的样式
+// 同步全屏按钮文案/图标，并在全屏态下调整容器、选项栏和 #diffResult 的样式
 function updateFullscreenBtn() {
   const btn = $('btnFullscreen');
-  const isFs = document.fullscreenElement === elResult;
+  const wrap = getDiffFullscreenWrap();
+  const optionBar = $('diffOptionBar');
+  const isFs = document.fullscreenElement === wrap;
+  if (wrap) {
+    wrap.classList.toggle('fs-active', isFs);
+  }
+  if (optionBar) {
+    optionBar.classList.toggle('fs-option-bar', isFs);
+  }
   if (elResult) {
     if (isFs) {
-      // 全屏时铺满，去掉高度限制并加大内边距、白底
       elResult.classList.add('fs-active', 'bg-white');
       elResult.classList.remove('max-h-[520px]');
-      elResult.style.maxHeight = '100vh';
-      elResult.style.height = '100vh';
-      elResult.style.padding = '24px';
     } else {
       elResult.classList.remove('fs-active', 'bg-white');
       elResult.classList.add('max-h-[520px]');
-      elResult.style.maxHeight = '';
-      elResult.style.height = '';
-      elResult.style.padding = '';
     }
   }
   if (btn) {
@@ -984,6 +1137,92 @@ const STAT_META = {
 function escHtml(s) {
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;')
     .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function editorSideByTextarea(el) {
+  if (el === elLeft) return 'left';
+  if (el === elRight) return 'right';
+  return '';
+}
+
+function getJsonEditorValue(el) {
+  const side = editorSideByTextarea(el);
+  const editor = side ? jsonEditors[side] : null;
+  return editor && editor.cm ? editor.cm.getValue() : (el ? el.value : '');
+}
+
+function syncTextareaFromEditor(side) {
+  const editor = jsonEditors[side];
+  if (!editor || !editor.textarea || !editor.cm) return;
+  editor.syncing = true;
+  editor.textarea.value = editor.cm.getValue();
+  editor.syncing = false;
+}
+
+function setJsonEditorValue(el, value) {
+  if (!el) return;
+  const side = editorSideByTextarea(el);
+  const editor = side ? jsonEditors[side] : null;
+  const text = String(value ?? '');
+  if (editor && editor.cm) {
+    editor.syncing = true;
+    editor.cm.setValue(text);
+    editor.textarea.value = text;
+    editor.cm.refresh();
+    editor.syncing = false;
+  } else {
+    el.value = text;
+  }
+}
+
+function handleJsonEditorChange(side) {
+  const editor = jsonEditors[side];
+  if (!editor || editor.syncing) return;
+  syncTextareaFromEditor(side);
+  const isLeft = side === 'left';
+  const el = isLeft ? elLeft : elRight;
+  const stat = isLeft ? elStatLeft : elStatRight;
+  parseSide(el.value, stat);
+  if (fileNames[side]) { fileNames[side] = ''; renderFileNames(); }
+  saveState();
+}
+
+function refreshJsonEditors() {
+  Object.values(jsonEditors).forEach(editor => {
+    if (editor && editor.cm) requestAnimationFrame(() => editor.cm.refresh());
+  });
+}
+
+function setupJsonEditors() {
+  if (typeof CodeMirror === 'undefined') {
+    console.warn('CodeMirror 未加载，已回退为原生 textarea。');
+    return;
+  }
+  Object.entries(jsonEditors).forEach(([side, editor]) => {
+    if (!editor || !editor.textarea || editor.cm) return;
+    editor.cm = CodeMirror.fromTextArea(editor.textarea, {
+      mode: { name: 'javascript', json: true },
+      lineNumbers: true,
+      lineWrapping: false,
+      matchBrackets: true,
+      foldGutter: true,
+      gutters: ['CodeMirror-linenumbers', 'CodeMirror-foldgutter'],
+      indentUnit: 2,
+      tabSize: 2,
+      extraKeys: {
+        'Ctrl-Q': (cm) => cm.foldCode(cm.getCursor()),
+        'Cmd-Q': (cm) => cm.foldCode(cm.getCursor()),
+        'Ctrl-F': 'findPersistent',
+        'Cmd-F': 'findPersistent',
+        'Ctrl-G': 'findNext',
+        'Cmd-G': 'findNext',
+        'Shift-Ctrl-G': 'findPrev',
+        'Shift-Cmd-G': 'findPrev',
+      },
+    });
+    editor.cm.setSize('100%', '100%');
+    editor.cm.on('change', () => handleJsonEditorChange(side));
+  });
 }
 
 // 简单值预览
@@ -1107,6 +1346,34 @@ function updateStripPrefixLabel() {
   const el = $('optStripPrefix');
   const txt = $('stripPrefixState');
   if (el && txt) txt.textContent = el.checked ? '开' : '关';
+}
+
+// 兼容复制文本：优先使用 Clipboard API，非安全上下文或旧浏览器回退到 textarea 复制
+function copyText(text) {
+  const value = String(text ?? '');
+  if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
+    return navigator.clipboard.writeText(value);
+  }
+
+  return new Promise((resolve, reject) => {
+    const textarea = document.createElement('textarea');
+    textarea.value = value;
+    textarea.setAttribute('readonly', 'readonly');
+    textarea.style.position = 'fixed';
+    textarea.style.left = '-9999px';
+    textarea.style.top = '0';
+    document.body.appendChild(textarea);
+    textarea.select();
+    textarea.setSelectionRange(0, textarea.value.length);
+    try {
+      const ok = document.execCommand('copy');
+      document.body.removeChild(textarea);
+      ok ? resolve() : reject(new Error('copy command failed'));
+    } catch (e) {
+      document.body.removeChild(textarea);
+      reject(e);
+    }
+  });
 }
 
 // 触发浏览器下载文本文件
@@ -1291,7 +1558,7 @@ document.addEventListener('keydown', (e) => {
 // 第5步：复制结果
 on('btnCopyFill', 'click', () => {
   if (!lastFillResultText) return;
-  navigator.clipboard.writeText(lastFillResultText).then(() => {
+  copyText(lastFillResultText).then(() => {
     const btn = $('btnCopyFill');
     if (btn) { const old = btn.innerHTML; btn.innerHTML = '<i class="ri-check-line"></i> 已复制'; setTimeout(() => btn.innerHTML = old, 1500); }
   }).catch(() => alert('复制失败，请手动选择文本复制。'));
@@ -1312,7 +1579,20 @@ on('btnRecompare', 'click', () => runCompare());
 // 第4步「下载详细统计」
 on('btnDownloadStat', 'click', downloadDetailStat);
 
-// 工具栏「清理缓存」：清除本地全部缓存（localStorage / sessionStorage / Cookie）后刷新
+// 左侧隐藏工具栏：点击工具图标展开/收起
+on('btnToolDockToggle', 'click', (e) => {
+  e.stopPropagation();
+  const panel = $('toolDockPanel');
+  if (panel) panel.classList.toggle('hidden');
+});
+document.addEventListener('click', (e) => {
+  const dock = $('leftToolDock');
+  const panel = $('toolDockPanel');
+  if (!dock || !panel || panel.classList.contains('hidden')) return;
+  if (!dock.contains(e.target)) panel.classList.add('hidden');
+});
+
+// 左侧工具栏「清理缓存」：清除本地全部缓存（localStorage / sessionStorage / Cookie）后刷新
 on('btnClearCache', 'click', clearAllCache);
 
 // 差异统计抽屉：关闭、遮罩、分页
@@ -1374,15 +1654,17 @@ function readLocalFile(file, targetEl, statEl, side) {
     statEl.className = 'text-xs text-rose-500';
     return;
   }
+  statEl.textContent = '读取中…';
+  statEl.className = 'text-xs text-indigo-500';
   const reader = new FileReader();
   reader.onload = (e) => {
     const text = String(e.target.result || '');
     try {
-      targetEl.value = JSON.stringify(JSON.parse(text), null, 2);
+      setJsonEditorValue(targetEl, JSON.stringify(JSON.parse(text), null, 2));
     } catch (_) {
-      targetEl.value = text;
+      setJsonEditorValue(targetEl, text);
     }
-    parseSide(targetEl.value, statEl);
+    parseSide(getJsonEditorValue(targetEl), statEl);
     // 记录并展示文件名/路径（浏览器出于安全只暴露文件名）
     if (side) {
       fileNames[side] = file.webkitRelativePath || file.name || '';
@@ -1426,27 +1708,21 @@ OPT_IDS.forEach(id => {
 });
 
 // 输入时更新状态提示并持久化文本；手动编辑则清除文件来源标记
-if (elLeft) elLeft.addEventListener('input', () => {
-  parseSide(elLeft.value, elStatLeft);
-  if (fileNames.left) { fileNames.left = ''; renderFileNames(); }
-  saveState();
-});
-if (elRight) elRight.addEventListener('input', () => {
-  parseSide(elRight.value, elStatRight);
-  if (fileNames.right) { fileNames.right = ''; renderFileNames(); }
-  saveState();
-});
+if (elLeft) elLeft.addEventListener('input', () => handleJsonEditorChange('left'));
+if (elRight) elRight.addEventListener('input', () => handleJsonEditorChange('right'));
 
 // ---------- 初始化 ----------
+renderConfiguredLimits();
+setupJsonEditors();
 if (restoreState()) {
-  parseSide(elLeft.value, elStatLeft);
-  parseSide(elRight.value, elStatRight);
+  parseSide(getJsonEditorValue(elLeft), elStatLeft);
+  parseSide(getJsonEditorValue(elRight), elStatRight);
 } else {
   // 默认加载示例数据，便于直接体验
-  elLeft.value = JSON.stringify(SAMPLE_LEFT, null, 2);
-  elRight.value = JSON.stringify(SAMPLE_RIGHT, null, 2);
-  parseSide(elLeft.value, elStatLeft);
-  parseSide(elRight.value, elStatRight);
+  setJsonEditorValue(elLeft, JSON.stringify(SAMPLE_LEFT, null, 2));
+  setJsonEditorValue(elRight, JSON.stringify(SAMPLE_RIGHT, null, 2));
+  parseSide(getJsonEditorValue(elLeft), elStatLeft);
+  parseSide(getJsonEditorValue(elRight), elStatRight);
   fileNames = { left: '示例数据（内置）', right: '示例数据（内置）' };
   renderFileNames();
   saveState();

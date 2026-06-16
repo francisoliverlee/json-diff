@@ -1,12 +1,13 @@
 // arraykey.js —— 对象数组主键选择模块
 // 职责：
 //   1. 扫描两侧 JSON，找出所有「对象数组」及其路径，并提取候选主键字段
-//   2. 渲染右侧抽屉，让用户为每个对象数组选择对比主键（支持多选 = 复合主键）
+//   2. 渲染主键选择列表，让用户为对象数组选择对比主键（支持多选 = 复合主键）
 //   3. 不做任何默认主键推断，所有主键均由用户在第三步手动选择
 //
-// 主键值统一抽象：每个对象数组的主键为「字段名数组」keyFields:string[]
+// 主键值统一抽象：每个目标路径的主键为「字段名数组」keyFields:string[]
 //   - 空数组 [] 表示尚未选择
 //   - 含一个字段 = 单主键；含多个字段 = 复合主键（按字段顺序联合作为匹配键）
+//   - 对象数组主键必选，避免对象数组退化为下标对比
 //   - 为向后兼容历史持久化数据，下方 toKeyFields 同时接受旧的字符串格式
 
 function isPlainObj(v) {
@@ -39,10 +40,10 @@ export function toKeyFields(v) {
 }
 
 /**
- * 递归扫描，收集所有对象数组。
- * @returns Map<path, { path, label, fields:Set, sampleCount }>
+ * 递归扫描，收集所有可设置主键的目标：仅对象数组。
+ * @returns Map<path, { path, label, type:'object'|'array', fields:Set, sample, count }>
  */
-function collectObjectArrays(node, path, acc) {
+function collectKeyTargets(node, path, acc) {
   if (Array.isArray(node)) {
     if (isObjectArray(node)) {
       const fields = acc.has(path) ? acc.get(path).fields : new Set();
@@ -55,18 +56,20 @@ function collectObjectArrays(node, path, acc) {
       if (!sample) sample = node.find(isPlainObj) || null;
       acc.set(path, {
         path,
+        type: 'array',
         label: path === '' ? '(根数组)' : path,
         fields,
         sample,
         count: Math.max(prev ? prev.count : 0, node.length),
       });
     }
-    // 继续向数组元素内部递归（支持嵌套对象数组）
-    node.forEach((item, i) => collectObjectArrays(item, `${path}[${i}]`.replace(/\[\d+\]$/, '[]'), acc));
+    // 继续向数组元素内部递归（支持多层对象 / 多层对象数组）
+    const elemPath = path ? `${path}[]` : '[]';
+    node.forEach((item) => collectKeyTargets(item, elemPath, acc));
   } else if (isPlainObj(node)) {
     Object.keys(node).forEach(k => {
       const childPath = path ? `${path}.${k}` : k;
-      collectObjectArrays(node[k], childPath, acc);
+      collectKeyTargets(node[k], childPath, acc);
     });
   }
   return acc;
@@ -74,22 +77,31 @@ function collectObjectArrays(node, path, acc) {
 
 /**
  * 扫描左右两侧 JSON，合并得到所有对象数组的路径与候选字段。
- * @returns Array<{ path, label, fields:string[], defaultKey, sample }>
- *   defaultKey 为空数组（尚未选择，进入下一步前会被强制校验）
+ * 保留函数名 scanArrayKeys 以兼容 main.js 现有调用。
+ * @returns Array<{ path, label, type:'object'|'array', fields:string[], defaultKey, sample, required }>
  */
 export function scanArrayKeys(left, right) {
   const acc = new Map();
-  collectObjectArrays(left, '', acc);
-  collectObjectArrays(right, '', acc);
+  collectKeyTargets(left, '', acc);
+  collectKeyTargets(right, '', acc);
 
   return Array.from(acc.values())
-    .sort((a, b) => a.path.localeCompare(b.path))
+    .sort((a, b) => {
+      if (a.path === b.path) return a.type.localeCompare(b.type);
+      return a.path.localeCompare(b.path);
+    })
     .map(item => {
       const fields = Array.from(item.fields);
-      // 不自动推断主键，也不允许按下标对比：每个对象数组都必须由用户在第三步手动选择主键。
-      // defaultKey 为空数组仅表示「尚未选择」，进入下一步前会被强制校验。
       const defaultKey = [];
-      return { path: item.path, label: item.label, fields, defaultKey, sample: item.sample };
+      return {
+        path: item.path,
+        label: item.label,
+        type: item.type,
+        fields,
+        defaultKey,
+        sample: item.sample,
+        required: item.type === 'array',
+      };
     });
 }
 
@@ -102,7 +114,7 @@ export function resolveKeyMap(arrays, savedMap = {}) {
   const map = {};
   arrays.forEach(a => {
     const savedFields = toKeyFields(savedMap[a.path]);
-    // 仅保留在当前数组字段中仍存在的主键字段
+    // 仅保留在当前目标字段中仍存在的主键字段
     const valid = savedFields.filter(f => a.fields.includes(f));
     map[a.path] = valid.length ? valid : toKeyFields(a.defaultKey);
   });
@@ -110,8 +122,8 @@ export function resolveKeyMap(arrays, savedMap = {}) {
 }
 
 /**
- * 渲染抽屉中的主键选择列表
- * 每个对象数组格式化展示第一个元素，字段行可点击「切换选中」作为复合主键的一部分。
+ * 渲染主键选择列表
+ * 每个对象数组格式化展示样本，字段行可点击「切换选中」作为复合主键的一部分。
  * @param {HTMLElement} listEl 容器
  * @param {Array} arrays scanArrayKeys 结果
  * @param {Object} keyMap 当前主键映射 { path: string[] }
@@ -121,7 +133,7 @@ export function renderKeyChooser(listEl, arrays, keyMap, onChange) {
   if (!arrays.length) {
     listEl.innerHTML = `<div class="text-center text-slate-400 py-10">
       <i class="ri-information-line text-3xl block mb-2"></i>
-      两侧 JSON 中未检测到对象数组，<br/>无需设置对比主键。
+      两侧 JSON 中未检测到对象数组，<br/>简单数组和普通对象无需设置对比主键。
     </div>`;
     return;
   }
@@ -143,6 +155,9 @@ export function renderKeyChooser(listEl, arrays, keyMap, onChange) {
   listEl.innerHTML = arrays.map((a, idx) => {
     const current = toKeyFields(keyMap[a.path] !== undefined ? keyMap[a.path] : a.defaultKey);
     const sample = a.sample || {};
+    const icon = 'ri-brackets-line';
+    const typeText = '对象数组';
+    const requiredText = '<span class="text-[10px] bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded">必选</span>';
 
     // 仅顶层简单字段可作为主键（对象/数组字段不适合作主键，仅展示不可选）
     const rows = a.fields.map(f => {
@@ -174,23 +189,26 @@ export function renderKeyChooser(listEl, arrays, keyMap, onChange) {
 
     const hasSample = a.fields.length && a.sample;
     const keyText = current.map(escapeHtml).join('<span class="text-slate-400"> + </span>');
+    const emptyTip = `<div class="text-xs text-rose-500 flex items-center gap-1"><i class="ri-error-warning-line"></i> 请为该对象数组选择至少一个主键字段（必选，不可使用下标对比）</div>`;
     return `
       <div class="key-array-block border border-slate-200 rounded-lg overflow-hidden transition-all duration-300" data-path="${a.path}" data-arr-index="${idx}" id="arrCard${idx}">
         <div class="flex items-center gap-2 px-3 py-2 bg-slate-50 border-b border-slate-200">
-          <i class="ri-brackets-line text-indigo-500"></i>
+          <i class="${icon} text-indigo-500"></i>
+          <span class="text-[10px] bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded">${typeText}</span>
+          ${requiredText}
           <span class="font-mono text-sm text-slate-700 break-all">${a.label}</span>
           <span class="ml-auto text-[10px] text-slate-400">${a.fields.length} 字段</span>
         </div>
         <div class="px-3 py-2">
-          <div class="text-[11px] text-slate-400 mb-1.5 flex items-center gap-1">
-            <i class="ri-cursor-line"></i> 点击下方字段作为对比主键（可多选组成<b class="text-indigo-500 mx-0.5">复合主键</b>，按点击顺序联合匹配）
+          <div class="text-[11px] text-slate-400 mb-1.5 flex items-center gap-1 flex-wrap">
+            <i class="ri-cursor-line"></i> 点击下方字段作为${typeText}对比主键（可多选组成<b class="text-indigo-500 mx-0.5">复合主键</b>，按点击顺序联合匹配）
           </div>
           <div class="space-y-1">
             ${hasSample ? rows : '<div class="text-xs text-slate-400 py-2">无可预览样本</div>'}
           </div>
           <div class="mt-2 pt-2 border-t border-dashed border-slate-200">
             ${current.length === 0
-              ? `<div class="text-xs text-rose-500 flex items-center gap-1"><i class="ri-error-warning-line"></i> 请为该对象数组选择至少一个主键字段（必选，不可使用下标对比）</div>`
+              ? emptyTip
               : `<div class="text-xs text-emerald-600 flex items-center gap-1 flex-wrap"><i class="ri-checkbox-circle-line"></i> 已选${current.length > 1 ? '复合' : ''}主键：<span class="font-mono font-semibold">${keyText}</span></div>`}
           </div>
         </div>
