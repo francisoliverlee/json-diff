@@ -3,6 +3,7 @@ import { diffJSON } from './diff.js';
 import { renderDiff, summarize, collectDiffPaths, aggregateByKey } from './render.js';
 import { scanArrayKeys, resolveKeyMap, renderKeyChooser, toKeyFields } from './arraykey.js';
 import { scanLeftPaths, applyFieldFill, previewValue, collectFieldValueStats } from './fieldfill.js';
+import { t, setLang, currentLang, applyI18nHTML, renderLangToggle } from './i18n.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -138,6 +139,8 @@ const MAX_JSON_DEPTH = 10;
 function renderConfiguredLimits() {
   const maxJsonDepthText = $('maxJsonDepthText');
   if (maxJsonDepthText) maxJsonDepthText.textContent = String(MAX_JSON_DEPTH);
+  const tip = $('step3Tip');
+  if (tip) tip.innerHTML = t('step3.tip', { depth: MAX_JSON_DEPTH });
 }
 
 // 保存当前状态：开关 + 左右文本 + 主键映射
@@ -211,17 +214,15 @@ function unselectedArrayPaths() {
       const valid = fields.length > 0 && fields.every(f => a.fields.includes(f));
       return !valid;
     })
-    .map(a => a.label || a.path || '(根数组)');
+    .map(a => a.label || a.path || t('diff.rootArray'));
 }
 
 // 校验全部对象数组是否都已选主键；未通过则提示并定位到第一个未选数组，返回 false
 function ensureAllArrayKeys() {
-  // 需先有有效输入与已扫描的目标
-  if (!detectedArrays || !detectedArrays.length) return true; // 无对象数组则无需选择
+  if (!detectedArrays || !detectedArrays.length) return true;
   const missing = unselectedArrayPaths();
   if (missing.length === 0) return true;
-  alert('请先为以下对象数组选择对比主键（对象主键可选；对象数组不允许使用数组下标 / 字段下标）：\n\n' + missing.join('\n'));
-  // 定位到第一个未选主键的对象数组，便于用户操作
+  alert(t('step3.alert.title') + '\n\n' + missing.join('\n'));
   const idx = detectedArrays.findIndex(a => {
     if (!a.required) return false;
     const fields = toKeyFields(arrayKeyMap[a.path]);
@@ -288,25 +289,25 @@ function ensureSupportedDepth(left, right) {
   const rightDepth = maxJsonDepth(right);
   const maxDepth = Math.max(leftDepth, rightDepth);
   if (maxDepth <= MAX_JSON_DEPTH) return true;
-  alert(`当前 JSON 层级为 ${maxDepth} 层，已超过最多支持的 ${MAX_JSON_DEPTH} 层，暂不支持对比。\n\n左侧层级：${leftDepth}\n右侧层级：${rightDepth}`);
+  alert(t('common.depthExceed', { maxDepth, maxJsonDepth: MAX_JSON_DEPTH, leftDepth, rightDepth }));
   return false;
 }
 
 // 解析单侧文本，返回 { ok, data, error }
 function parseSide(text, statEl) {
   if (!text.trim()) {
-    statEl.textContent = '空';
+    statEl.textContent = t('common.empty');
     statEl.className = 'text-xs text-slate-400';
     return { ok: false, empty: true };
   }
   try {
     const data = JSON.parse(text);
-    const t = Array.isArray(data) ? `数组(${data.length})` : (typeof data === 'object' && data !== null ? `对象(${Object.keys(data).length} keys)` : typeof data);
-    statEl.textContent = '✓ ' + t;
+    const label = Array.isArray(data) ? t('parse.valid.array', { n: data.length }) : (typeof data === 'object' && data !== null ? t('parse.valid.object', { n: Object.keys(data).length }) : typeof data);
+    statEl.textContent = '✓ ' + label;
     statEl.className = 'text-xs text-emerald-500';
     return { ok: true, data };
   } catch (e) {
-    statEl.textContent = '✗ JSON 解析错误';
+    statEl.textContent = t('common.parseError');
     statEl.className = 'text-xs text-rose-500';
     return { ok: false, error: e.message };
   }
@@ -381,11 +382,11 @@ function validateInput() {
   const right = parseSide(getJsonEditorValue(elRight), elStatRight);
   if (!left.ok || !right.ok) {
     const msgs = [];
-    if (left.error) msgs.push('左侧：' + left.error);
-    if (left.empty) msgs.push('左侧为空');
-    if (right.error) msgs.push('右侧：' + right.error);
-    if (right.empty) msgs.push('右侧为空');
-    alert('无法进入下一步：\n' + msgs.join('\n'));
+    if (left.error) msgs.push(t('common.left') + '：' + left.error);
+    if (left.empty) msgs.push(t('common.left') + t('common.isEmpty'));
+    if (right.error) msgs.push(t('common.right') + '：' + right.error);
+    if (right.empty) msgs.push(t('common.right') + t('common.isEmpty'));
+    alert(t('common.cantProceed') + '\n' + msgs.join('\n'));
     return null;
   }
   if (!ensureSupportedDepth(left.data, right.data)) {
@@ -400,7 +401,7 @@ function prepareStep3() {
   const list = $('keyList');
   if (!parsed) {
     detectedArrays = [];
-    list.innerHTML = `<div class="text-center text-rose-500 py-10"><i class="ri-error-warning-line text-3xl block mb-2"></i>请先在第二步填写有效的 JSON</div>`;
+    list.innerHTML = `<div class="text-center text-rose-500 py-10"><i class="ri-error-warning-line text-3xl block mb-2"></i>${t('step3.empty')}</div>`;
     return;
   }
   detectedArrays = scanArrayKeys(parsed.left, parsed.right);
@@ -419,10 +420,6 @@ function prepareStep3() {
       // 将「当前目标」定位到刚选择的这个目标（用户可能点的不是当前高亮项）
       const selIdx = detectedArrays.findIndex(a => a.path === path);
       if (selIdx >= 0) curArrIndex = selIdx;
-      // 选定主键后，若还有后续目标则自动前进到下一个目标
-      if (curArrIndex < detectedArrays.length - 1) {
-        curArrIndex += 1;
-      }
       // onChange 触发后 renderKeyChooser 会立即重渲染列表（重建 DOM），
       // 故延迟到下一帧再更新导航高亮与滚动定位，避免被覆盖
       requestAnimationFrame(() => updateArrNav());
@@ -455,6 +452,8 @@ function updateArrNav() {
   const total = detectedArrays.length;
   const curEl = $('arrCur'); if (curEl) curEl.textContent = curArrIndex + 1;
   const totEl = $('arrTotal'); if (totEl) totEl.textContent = total;
+  const counter = $('step3TargetCounter');
+  if (counter) { counter.textContent = t('step3.targetCounter', { cur: curArrIndex + 1, total }); }
   const prev = $('btnPrevArr'); if (prev) prev.disabled = curArrIndex <= 0;
   const next = $('btnNextArr'); if (next) next.disabled = curArrIndex >= total - 1;
 
@@ -498,14 +497,14 @@ function setCompareLoading(loading, text) {
     btn.classList.toggle('opacity-70', loading);
     btn.classList.toggle('cursor-not-allowed', loading);
     btn.innerHTML = loading
-      ? '<i class="ri-loader-4-line compare-spin"></i> 对比中…'
-      : '<i class="ri-refresh-line"></i> 重新对比';
+      ? '<i class="ri-loader-4-line compare-spin"></i> ' + t('step4.comparing')
+      : '<i class="ri-refresh-line"></i> ' + t('step4.recompare');
   }
   if (loading) {
     if (elLegend) {
       elLegend.innerHTML = `<div class="lg:col-span-4 sm:col-span-2 border border-indigo-100 rounded-xl bg-indigo-50/60 px-4 py-3 text-sm text-indigo-700 flex items-center gap-2">
         <i class="ri-loader-4-line compare-spin text-lg"></i>
-        <span>正在生成差异统计，请稍候…</span>
+        <span>${t('step4.loadingGen')}</span>
       </div>`;
     }
     if (elResult) {
@@ -513,8 +512,8 @@ function setCompareLoading(loading, text) {
         <div class="w-12 h-12 mx-auto mb-4 rounded-full bg-indigo-50 flex items-center justify-center">
           <i class="ri-loader-4-line compare-spin text-3xl"></i>
         </div>
-        <div class="font-semibold">${escHtml(text || '正在加载对比数据…')}</div>
-        <div class="text-xs text-slate-400 mt-2">大文件解析和渲染可能需要几秒，请不要关闭页面</div>
+        <div class="font-semibold">${escHtml(text || t('step4.loadingDetail'))}</div>
+        <div class="text-xs text-slate-400 mt-2">${t('step4.loadingWait')}</div>
       </div>`;
     }
   }
@@ -526,7 +525,7 @@ function runCompareNow(jobId) {
   if (!parsed) {
     elResult.innerHTML = `<div class="text-center text-rose-500 py-12">
       <i class="ri-error-warning-line text-4xl block mb-2"></i>
-      无法对比，请返回第二步检查 JSON 输入
+      ${t('step4.cantCompare')}
     </div>`;
     if (elLegend) elLegend.innerHTML = '';
     setCompareLoading(false);
@@ -551,7 +550,7 @@ function runCompareNow(jobId) {
     }
     elResult.innerHTML = `<div class="text-center text-rose-500 py-12">
       <i class="ri-error-warning-line text-4xl block mb-2"></i>
-      对比失败：${escHtml(msg)}
+      ${t('step4.failed')}${escHtml(msg)}
     </div>`;
     if (elLegend) elLegend.innerHTML = '';
     setCompareLoading(false);
@@ -594,7 +593,7 @@ function prepareStep5() {
   if (!parsed) {
     fillPaths = [];
     fillSelected.clear();
-    if (wrap) wrap.innerHTML = `<div class="text-center text-rose-500 py-10"><i class="ri-error-warning-line text-3xl block mb-2"></i>请先在第二步填写有效的 JSON</div>`;
+    if (wrap) wrap.innerHTML = `<div class="text-center text-rose-500 py-10"><i class="ri-error-warning-line text-3xl block mb-2"></i>${t('step5.availEmpty')}</div>`;
     hideFillResult();
     updateFillSelCount();
     return;
@@ -621,7 +620,7 @@ function prepareStep5() {
     }
     fillPaths = [];
     fillSelected.clear();
-    if (wrap) wrap.innerHTML = `<div class="text-center text-rose-500 py-10"><i class="ri-error-warning-line text-3xl block mb-2"></i>生成值不同字段列表失败：${escHtml(msg)}</div>`;
+    if (wrap) wrap.innerHTML = `<div class="text-center text-rose-500 py-10"><i class="ri-error-warning-line text-3xl block mb-2"></i>${t('fieldfill.genFailed', { msg: escHtml(msg) })}</div>`;
     hideFillResult();
     updateFillSelCount();
     return;
@@ -662,17 +661,15 @@ function prepareStep5() {
 // 字段项 HTML（备选/已选共用），dir 标识移动方向图标
 function fillItemHtml(p, dir) {
   const arrTag = p.isArrayItemField
-    ? `<span class="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded shrink-0" title="位于对象数组「${escHtml(p.arrayPath)}」内，按主键匹配回填">数组项·主键匹配</span>`
+    ? `<span class="text-[10px] bg-indigo-100 text-indigo-700 px-1.5 py-0.5 rounded shrink-0" title="${escHtml(t('fieldfill.arrTagTitle', { arrayPath: p.arrayPath }))}">${t('fieldfill.arrTag')}</span>`
     : '';
-  // 匹配总数徽章：该字段回填到右侧实际命中的处数；匹配>0 时可点击查看值统计
   const mc = (typeof p.matchCount === 'number') ? p.matchCount : 0;
   const matchTag = mc > 0
-    ? `<span class="fill-stat-btn text-[10px] bg-emerald-100 text-emerald-700 hover:bg-emerald-200 px-1.5 py-0.5 rounded shrink-0 cursor-pointer transition" data-stat-path="${escHtml(p.path)}" title="点击查看该字段全部匹配值的统计列表"><i class="ri-links-line"></i> 匹配 ${mc}</span>`
-    : `<span class="text-[10px] bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded shrink-0" title="右侧无主键匹配的对象，该字段回填不会生效"><i class="ri-link-unlink-m"></i> 无匹配</span>`;
-  // dir='add'：备选项（点击整行加入，加号图标）；dir='remove'：已选项（仅点击删除图标移除）
+    ? `<span class="fill-stat-btn text-[10px] bg-emerald-100 text-emerald-700 hover:bg-emerald-200 px-1.5 py-0.5 rounded shrink-0 cursor-pointer transition" data-stat-path="${escHtml(p.path)}" title="${escHtml(t('fieldfill.matchNTitle'))}"><i class="ri-links-line"></i> ${t('fieldfill.matchN', { n: mc })}</span>`
+    : `<span class="text-[10px] bg-slate-100 text-slate-400 px-1.5 py-0.5 rounded shrink-0" title="${escHtml(t('fieldfill.noMatchTagTitle'))}"><i class="ri-link-unlink-m"></i> ${t('fieldfill.noMatchTag')}</span>`;
   const icon = dir === 'add'
     ? '<i class="ri-add-circle-line text-slate-300 group-hover:text-indigo-500 text-lg shrink-0"></i>'
-    : '<i class="fill-remove-btn ri-close-circle-line text-indigo-300 hover:text-rose-500 text-lg shrink-0 cursor-pointer" title="点击移出已选"></i>';
+    : `<i class="fill-remove-btn ri-close-circle-line text-indigo-300 hover:text-rose-500 text-lg shrink-0 cursor-pointer" title="${escHtml(t('fieldfill.removeTitle'))}"></i>`;
   // 备选项整行可点击加入；已选项整行不可点击，仅删除图标可点击
   const rowCls = dir === 'add'
     ? 'fill-item group flex items-center gap-3 px-3 py-2 hover:bg-slate-50 cursor-pointer transition'
@@ -703,11 +700,11 @@ function renderFillList() {
     const list = kw ? avail.filter(p => p.path.toLowerCase().includes(kw)) : avail;
 
     if (!fillPaths.length) {
-      availWrap.innerHTML = `<div class="text-center text-slate-400 py-10"><i class="ri-inbox-line text-3xl block mb-2"></i>当前没有值不同且可回填的字段</div>`;
+      availWrap.innerHTML = `<div class="text-center text-slate-400 py-10"><i class="ri-inbox-line text-3xl block mb-2"></i>${t('fieldfill.noDiffFields')}</div>`;
     } else if (!avail.length) {
-      availWrap.innerHTML = `<div class="text-center text-emerald-500 py-10"><i class="ri-checkbox-circle-line text-3xl block mb-2"></i>全部字段均已加入右侧</div>`;
+      availWrap.innerHTML = `<div class="text-center text-emerald-500 py-10"><i class="ri-checkbox-circle-line text-3xl block mb-2"></i>${t('fieldfill.allSelected')}</div>`;
     } else if (!list.length) {
-      availWrap.innerHTML = `<div class="text-center text-slate-400 py-10"><i class="ri-search-line text-3xl block mb-2"></i>没有匹配「${escHtml(kw)}」的字段路径</div>`;
+      availWrap.innerHTML = `<div class="text-center text-slate-400 py-10"><i class="ri-search-line text-3xl block mb-2"></i>${t('fieldfill.noMatch', { kw })}</div>`;
     } else {
       availWrap.innerHTML = list.map(p => fillItemHtml(p, 'add')).join('');
     }
@@ -734,7 +731,7 @@ function renderFillList() {
   if (selWrap) {
     const selList = fillPaths.filter(p => fillSelected.has(p.path));
     if (!selList.length) {
-      selWrap.innerHTML = `<div class="text-center text-slate-400 py-10"><i class="ri-arrow-left-double-line text-3xl block mb-2"></i>从左侧选择字段加入此处</div>`;
+      selWrap.innerHTML = `<div class="text-center text-slate-400 py-10"><i class="ri-arrow-left-double-line text-3xl block mb-2"></i>${t('fieldfill.selPlaceholder')}</div>`;
     } else {
       selWrap.innerHTML = selList.map(p => fillItemHtml(p, 'remove')).join('');
     }
@@ -811,7 +808,7 @@ function renderFieldStatPage() {
   fieldStatState.page = cur;
 
   if (!stats.length) {
-    listEl.innerHTML = `<div class="text-center text-slate-400 py-10"><i class="ri-inbox-line text-3xl block mb-2"></i>该字段无匹配回填，暂无可统计的值</div>`;
+    listEl.innerHTML = `<div class="text-center text-slate-400 py-10"><i class="ri-inbox-line text-3xl block mb-2"></i>${t('fieldfill.statNoData')}</div>`;
   } else {
     const start = (cur - 1) * pageSize;
     const pageItems = stats.slice(start, start + pageSize);
@@ -828,7 +825,7 @@ function renderFieldStatPage() {
               <div class="h-full bg-emerald-400 rounded-full" style="width:${pct}%"></div>
             </div>
           </div>
-          <span class="shrink-0 text-sm font-semibold text-emerald-600 whitespace-nowrap">${it.count} 个</span>
+          <span class="shrink-0 text-sm font-semibold text-emerald-600 whitespace-nowrap">${it.count} ${t('fieldfill.unit')}</span>
         </div>`;
     }).join('');
   }
@@ -877,7 +874,7 @@ function doFieldFill(silent) {
   const parsed = validateInput();
   if (!parsed) return;
   if (!fillSelected.size) {
-    if (!silent) alert('请先勾选要回填的字段。');
+    if (!silent) alert(t('common.pleaseSelectFields'));
     return;
   }
 
@@ -919,18 +916,18 @@ function doFieldFill(silent) {
     const added = logs.filter(l => l.action === 'added').length;
     const replaced = logs.filter(l => l.action === 'replaced').length;
     if (!logs.length) {
-      logEl.innerHTML = `<div class="text-amber-600 flex items-center gap-1"><i class="ri-error-warning-line"></i> 未发生任何回填：可能右侧无主键匹配的对象，或所选字段在左侧不存在。</div>`;
+      logEl.innerHTML = `<div class="text-amber-600 flex items-center gap-1"><i class="ri-error-warning-line"></i> ${t('fieldfill.noFill')}</div>`;
     } else {
       logEl.innerHTML = `
         <div class="text-slate-600 flex items-center gap-3 flex-wrap">
-          <span class="flex items-center gap-1"><i class="ri-checkbox-circle-line text-emerald-500"></i> 共 ${logs.length} 处回填</span>
-          <span class="text-rose-600">新增 ${added}</span>
-          <span class="text-amber-600">覆盖 ${replaced}</span>
+          <span class="flex items-center gap-1"><i class="ri-checkbox-circle-line text-emerald-500"></i> ${t('fieldfill.fillTotal', { n: logs.length })}</span>
+          <span class="text-rose-600">${t('fieldfill.fillAdded', { n: added })}</span>
+          <span class="text-amber-600">${t('fieldfill.fillReplaced', { n: replaced })}</span>
         </div>
         <div class="mt-1 max-h-32 overflow-auto border border-slate-100 rounded p-2 space-y-0.5">
           ${logs.map(l => `
             <div class="flex items-center gap-2">
-              <span class="text-[10px] px-1.5 rounded ${l.action === 'added' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}">${l.action === 'added' ? '新增' : '覆盖'}</span>
+              <span class="text-[10px] px-1.5 rounded ${l.action === 'added' ? 'bg-rose-100 text-rose-700' : 'bg-amber-100 text-amber-700'}">${l.action === 'added' ? t('fieldfill.actionAdded') : t('fieldfill.actionReplaced')}</span>
               <span class="font-mono text-slate-600 break-all">${escHtml(l.path)}</span>
               <span class="text-slate-400">=</span>
               <span class="font-mono text-emerald-600">${escHtml(previewValue(l.newValue))}</span>
@@ -947,10 +944,10 @@ function doFieldFill(silent) {
 
 // 渲染 legendBar：按 key 维度统计仅A有/仅B有/值不同的明细，并附相同数量
 const LEGEND_META = [
-  { type: 'removed', label: '仅A有', icon: 'ri-indeterminate-circle-line', dot: 'bg-emerald-200', head: 'text-emerald-700', hover: 'hover:bg-emerald-50', border: 'border-emerald-200', clickable: true },
-  { type: 'added',   label: '仅B有', icon: 'ri-add-circle-line',          dot: 'bg-rose-200',    head: 'text-rose-700',    hover: 'hover:bg-rose-50',    border: 'border-rose-200',    clickable: true },
-  { type: 'changed', label: '值不同', icon: 'ri-error-warning-line',       dot: 'bg-amber-200',   head: 'text-amber-700',   hover: 'hover:bg-amber-50',   border: 'border-amber-200',   clickable: true },
-  { type: 'same',    label: '相同',   icon: 'ri-equal-line',               dot: 'bg-slate-200',   head: 'text-slate-600',   hover: '',                    border: 'border-slate-200',   clickable: false },
+  { type: 'removed', labelKey: 'legend.removed', icon: 'ri-indeterminate-circle-line', dot: 'bg-emerald-200', head: 'text-emerald-700', hover: 'hover:bg-emerald-50', border: 'border-emerald-200', clickable: true },
+  { type: 'added',   labelKey: 'legend.added',   icon: 'ri-add-circle-line',          dot: 'bg-rose-200',    head: 'text-rose-700',    hover: 'hover:bg-rose-50',    border: 'border-rose-200',    clickable: true },
+  { type: 'changed', labelKey: 'legend.changed', icon: 'ri-error-warning-line',       dot: 'bg-amber-200',   head: 'text-amber-700',   hover: 'hover:bg-amber-50',   border: 'border-amber-200',   clickable: true },
+  { type: 'same',    labelKey: 'legend.same',    icon: 'ri-equal-line',               dot: 'bg-slate-200',   head: 'text-slate-600',   hover: '',                    border: 'border-slate-200',   clickable: false },
 ];
 
 // legendEl：图例容器（默认第4步 elLegend）；pathsData：差异路径数据源（默认全局 diffPaths）
@@ -961,33 +958,31 @@ function renderLegend(summary, legendEl, pathsData) {
   if (!container) return;
   const stripPrefix = (() => { const el = $('optStripPrefix'); return el ? el.checked : true; })();
 
-  // 开关关闭（按完整路径统计）时，路径较长，卡片改为一行一个；打开时维持多列网格
   container.className = stripPrefix
     ? 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3'
     : 'grid grid-cols-1 gap-3';
 
   container.innerHTML = LEGEND_META.map(m => {
+    const label = t(m.labelKey);
     const total = m.type === 'same' ? (summary.same || 0) : (paths[m.type] ? paths[m.type].length : 0);
-
-    // 状态过滤复选框：仅第4步主图例（默认 elLegend，未传入自定义 legendEl）展示，
-    // 用于控制「根节点」差异树只展示选中的差异类型。
     const showFilter = !legendEl || legendEl === elLegend;
     const checked = statusFilter.has(m.type) ? 'checked' : '';
+    const filterTitle = t('legend.filterTitle.' + m.type, { label });
     const filterBox = showFilter
-      ? `<label class="legend-filter flex items-center shrink-0 cursor-pointer" title="勾选后在「根节点」差异树中展示「${m.label}」">
+      ? `<label class="legend-filter flex items-center shrink-0 cursor-pointer" title="${escHtml(filterTitle)}">
            <input type="checkbox" class="legend-filter-cb w-3.5 h-3.5 accent-indigo-600 cursor-pointer" data-filter="${m.type}" ${checked} />
          </label>`
       : '';
 
-    // 标题栏
     const headClick = m.clickable ? `data-stat="${m.type}"` : '';
     const cursor = m.clickable ? 'cursor-pointer ' + m.hover : '';
+    const clickTitle = t('legend.clickTitle', { label });
     const head = `
-      <div class="legend-head flex items-center justify-between gap-1 px-2.5 py-1.5 ${cursor} transition" ${headClick} ${m.clickable ? `title="点击查看「${m.label}」全部差异列表"` : ''}>
+      <div class="legend-head flex items-center justify-between gap-1 px-2.5 py-1.5 ${cursor} transition" ${headClick} ${m.clickable ? `title="${escHtml(clickTitle)}"` : ''}>
         <span class="flex items-center gap-1.5 font-semibold ${m.head}">
           ${filterBox}
           <span class="w-3 h-3 rounded-sm ${m.dot} inline-block"></span>
-          <i class="${m.icon}"></i> ${m.label}
+          <i class="${m.icon}"></i> ${label}
         </span>
         <span class="flex items-center gap-1 text-xs ${m.head}">
           <span class="font-bold">${total}</span>
@@ -995,12 +990,11 @@ function renderLegend(summary, legendEl, pathsData) {
         </span>
       </div>`;
 
-    // 明细：相同类别不展开 key 明细（只显示总数）
     let body = '';
     if (m.type !== 'same') {
       const rows = aggregateByKey(paths[m.type] || [], stripPrefix);
       if (!rows.length) {
-        body = `<div class="px-2.5 py-2 text-[11px] text-slate-300">无</div>`;
+        body = `<div class="px-2.5 py-2 text-[11px] text-slate-300">${t('legend.none')}</div>`;
       } else {
         body = `<div class="max-h-44 overflow-auto px-1.5 py-1 space-y-0.5">` + rows.map(r => `
           <div class="flex items-center justify-between gap-2 px-1.5 py-0.5 rounded hover:bg-white text-xs">
@@ -1009,7 +1003,7 @@ function renderLegend(summary, legendEl, pathsData) {
           </div>`).join('') + `</div>`;
       }
     } else {
-      body = `<div class="px-2.5 py-2 text-[11px] text-slate-400">共 ${total} 处相同</div>`;
+      body = `<div class="px-2.5 py-2 text-[11px] text-slate-400">${t('legend.sameCount', { n: total })}</div>`;
     }
 
     return `<div class="border ${m.border} rounded-lg bg-white overflow-hidden">${head}${body}</div>`;
@@ -1093,7 +1087,7 @@ function toggleResultFullscreen() {
     document.exitFullscreen();
   } else if (wrap && wrap.requestFullscreen) {
     wrap.requestFullscreen().catch(() => {
-      alert('当前浏览器不支持全屏，或被安全策略阻止。');
+      alert(t('common.fullscreen_blocked'));
     });
   }
 }
@@ -1121,16 +1115,16 @@ function updateFullscreenBtn() {
   }
   if (btn) {
     btn.innerHTML = isFs
-      ? '<i class="ri-fullscreen-exit-line"></i> 退出全屏'
-      : '<i class="ri-fullscreen-line"></i> 全屏查看';
+      ? '<i class="ri-fullscreen-exit-line"></i> ' + t('step4.exitFullscreen')
+      : '<i class="ri-fullscreen-line"></i> ' + t('step4.fullscreen');
   }
 }
 
 // ---------- 差异统计抽屉 ----------
 const STAT_META = {
-  removed: { title: '仅 A 有的 Key', icon: 'ri-indeterminate-circle-line', head: 'bg-emerald-600' },
-  added:   { title: '仅 B 有的 Key', icon: 'ri-add-circle-line',          head: 'bg-rose-600' },
-  changed: { title: '值不同的 Key',  icon: 'ri-error-warning-line',        head: 'bg-amber-600' },
+  removed: { titleKey: 'drawer.title.removed', icon: 'ri-indeterminate-circle-line', head: 'bg-emerald-600' },
+  added:   { titleKey: 'drawer.title.added',   icon: 'ri-add-circle-line',          head: 'bg-rose-600' },
+  changed: { titleKey: 'drawer.title.changed', icon: 'ri-error-warning-line',        head: 'bg-amber-600' },
 };
 
 // HTML 转义
@@ -1227,7 +1221,7 @@ function setupJsonEditors() {
 
 // 简单值预览
 function previewVal(v) {
-  if (v === undefined) return '（缺失）';
+  if (v === undefined) return t('common.missing');
   if (v === null) return 'null';
   if (typeof v === 'object') {
     const s = JSON.stringify(v);
@@ -1263,9 +1257,11 @@ function openStatDrawer(type) {
 
   const header = $('statDrawerHeader');
   if (header) header.className = `flex items-center justify-between px-5 py-4 text-white shrink-0 ${meta.head}`;
-  const titleEl = $('statDrawerTitle'); if (titleEl) titleEl.textContent = meta.title;
+  const titleEl = $('statDrawerTitle'); if (titleEl) titleEl.textContent = t(meta.titleKey);
   const iconEl = $('statDrawerIcon'); if (iconEl) iconEl.className = meta.icon;
   const totalEl = $('statDrawerTotal'); if (totalEl) totalEl.textContent = drawerState.list.length;
+  const totalDiv = $('statDrawerTotalDiv');
+  if (totalDiv) totalDiv.innerHTML = t('drawer.total', { n: drawerState.list.length });
 
   renderDrawerPage();
 
@@ -1297,7 +1293,7 @@ function renderDrawerPage() {
   const listEl = $('statDrawerList');
   if (listEl) {
     if (!pageItems.length) {
-      listEl.innerHTML = `<div class="text-center text-slate-400 py-16"><i class="ri-inbox-line text-4xl block mb-2"></i>该类别没有差异</div>`;
+      listEl.innerHTML = `<div class="text-center text-slate-400 py-16"><i class="ri-inbox-line text-4xl block mb-2"></i>${t('drawer.empty')}</div>`;
     } else {
       listEl.innerHTML = pageItems.map((it, idx) => {
         const seq = start + idx + 1;
@@ -1310,7 +1306,7 @@ function renderDrawerPage() {
           </div>`;
         } else {
           const v = it.status === 'added' ? it.right : it.left;
-          valHtml = `<div class="mt-1 text-xs text-slate-500">值：<span class="bg-slate-100 px-1.5 rounded">${escHtml(previewVal(v))}</span></div>`;
+          valHtml = `<div class="mt-1 text-xs text-slate-500">Value: <span class="bg-slate-100 px-1.5 rounded">${escHtml(previewVal(v))}</span></div>`;
         }
         return `
           <div class="border border-slate-200 rounded-lg p-3 hover:bg-slate-50 transition">
@@ -1318,7 +1314,7 @@ function renderDrawerPage() {
               <span class="text-[11px] text-slate-400 font-mono mt-0.5 shrink-0">#${seq}</span>
               <div class="min-w-0 flex-1">
                 <div class="font-mono text-sm text-indigo-700 break-all">${escHtml(it.path)}</div>
-                <div class="text-[11px] text-slate-400 mt-0.5">所在路径：<span class="font-mono">${escHtml(it.group)}</span> · 该路径共 <b class="text-slate-600">${it._groupCount}</b> 处差异</div>
+                <div class="text-[11px] text-slate-400 mt-0.5">${t('drawer.pathPrefix')}<span class="font-mono">${escHtml(it.group)}</span> · ${t('drawer.pathCount', { n: it._groupCount })}</div>
                 ${valHtml}
               </div>
             </div>
@@ -1345,7 +1341,7 @@ function on(id, event, handler) {
 function updateStripPrefixLabel() {
   const el = $('optStripPrefix');
   const txt = $('stripPrefixState');
-  if (el && txt) txt.textContent = el.checked ? '开' : '关';
+  if (el && txt) txt.textContent = el.checked ? t('step4.stripOn') : t('step4.stripOff');
 }
 
 // 兼容复制文本：优先使用 Clipboard API，非安全上下文或旧浏览器回退到 textarea 复制
@@ -1391,7 +1387,7 @@ function downloadText(filename, text, mime = 'text/plain;charset=utf-8') {
 
 // 将单个差异值转为纯文本（不截断，保留完整内容）—— 用作表格单元格值
 function valToPlain(v) {
-  if (v === undefined) return '（缺失）';
+  if (v === undefined) return t('common.missing');
   if (v === null) return 'null';
   if (typeof v === 'object') return JSON.stringify(v);
   if (typeof v === 'string') return v;
@@ -1408,32 +1404,31 @@ function buildSummaryAOA() {
   const cntChanged = diffPaths.changed.length;
 
   const aoa = [];
-  aoa.push(['JSON 差异详细统计报告']);
+  aoa.push([t('export.title')]);
   aoa.push([]);
-  aoa.push(['生成时间', ts]);
-  aoa.push(['左侧来源(A)', fileNames.left || '（手动输入）']);
-  aoa.push(['右侧来源(B)', fileNames.right || '（手动输入）']);
-  aoa.push(['统计口径', '完整前缀路径（未去掉前缀）']);
+  aoa.push([t('export.timestamp'), ts]);
+  aoa.push([t('export.leftSource'), fileNames.left || t('export.manualInput')]);
+  aoa.push([t('export.rightSource'), fileNames.right || t('export.manualInput')]);
+  aoa.push([t('export.scope'), t('export.scopeVal')]);
   aoa.push([]);
-  aoa.push(['差异类别', '数量']);
-  aoa.push(['仅A有', cntRemoved]);
-  aoa.push(['仅B有', cntAdded]);
-  aoa.push(['值不同', cntChanged]);
-  aoa.push(['合计', cntRemoved + cntAdded + cntChanged]);
+  aoa.push([t('export.category'), t('export.count')]);
+  aoa.push([t('legend.removed'), cntRemoved]);
+  aoa.push([t('legend.added'), cntAdded]);
+  aoa.push([t('legend.changed'), cntChanged]);
+  aoa.push([t('export.total'), cntRemoved + cntAdded + cntChanged]);
   aoa.push([]);
 
-  // 各类别「按完整路径聚合」明细
   const CAT = [
-    { type: 'removed', label: '仅A有' },
-    { type: 'added', label: '仅B有' },
-    { type: 'changed', label: '值不同' },
+    { type: 'removed', labelKey: 'legend.removed' },
+    { type: 'added', labelKey: 'legend.added' },
+    { type: 'changed', labelKey: 'legend.changed' },
   ];
   CAT.forEach(c => {
-    aoa.push([`【${c.label}】按完整路径聚合`]);
-    aoa.push(['完整路径', '出现次数']);
+    aoa.push([`[${t(c.labelKey)}] ${t('export.aggregated')}`]);
+    aoa.push([t('export.fullPath'), t('export.occurrences')]);
     const agg = aggregateByKey(diffPaths[c.type] || [], false);
     if (!agg.length) {
-      aoa.push(['（无）', 0]);
+      aoa.push([t('legend.none'), 0]);
     } else {
       agg.forEach(r => aoa.push([r.key, r.count]));
     }
@@ -1443,25 +1438,22 @@ function buildSummaryAOA() {
   return aoa;
 }
 
-// 构建某一类别明细 sheet 的二维数组（AOA）
-// removed/added：序号 | 完整路径 | 所在路径 | 值
-// changed：序号 | 完整路径 | 所在路径 | A值 | B值
 function buildCategoryAOA(type) {
   const list = diffPaths[type] || [];
   const aoa = [];
   if (type === 'changed') {
-    aoa.push(['序号', '完整路径', '所在路径', 'A值', 'B值']);
+    aoa.push([t('export.rowNum'), t('export.fullPath'), t('drawer.pathPrefix').replace(': ', ''), t('export.aValue'), t('export.bValue')]);
     list.forEach((it, i) => {
       aoa.push([i + 1, it.path, it.group, valToPlain(it.left), valToPlain(it.right)]);
     });
   } else {
-    aoa.push(['序号', '完整路径', '所在路径', '值']);
+    aoa.push([t('export.rowNum'), t('export.fullPath'), t('drawer.pathPrefix').replace(': ', ''), 'Value']);
     list.forEach((it, i) => {
       const v = type === 'added' ? it.right : it.left;
       aoa.push([i + 1, it.path, it.group, valToPlain(v)]);
     });
   }
-  if (list.length === 0) aoa.push(['（无数据）']);
+  if (list.length === 0) aoa.push([t('legend.none')]);
   return aoa;
 }
 
@@ -1469,11 +1461,11 @@ function buildCategoryAOA(type) {
 function downloadDetailStat() {
   const total = diffPaths.removed.length + diffPaths.added.length + diffPaths.changed.length;
   if (!total) {
-    alert('当前没有可导出的差异统计，请先在第四步执行对比。');
+    alert(t('common.noExport'));
     return;
   }
   if (typeof XLSX === 'undefined') {
-    alert('表格导出组件尚未加载完成，请稍后重试。');
+    alert(t('common.exportFail'));
     return;
   }
 
@@ -1482,22 +1474,22 @@ function downloadDetailStat() {
   // Sheet1：统计信息
   const wsSummary = XLSX.utils.aoa_to_sheet(buildSummaryAOA());
   wsSummary['!cols'] = [{ wch: 40 }, { wch: 16 }];
-  XLSX.utils.book_append_sheet(wb, wsSummary, '统计信息');
+  XLSX.utils.book_append_sheet(wb, wsSummary, t('export.sheetSummary'));
 
-  // Sheet2：仅A有（removed）
+  // Sheet2
   const wsRemoved = XLSX.utils.aoa_to_sheet(buildCategoryAOA('removed'));
   wsRemoved['!cols'] = [{ wch: 6 }, { wch: 48 }, { wch: 32 }, { wch: 40 }];
-  XLSX.utils.book_append_sheet(wb, wsRemoved, '仅A有');
+  XLSX.utils.book_append_sheet(wb, wsRemoved, t('export.sheetRemoved'));
 
-  // Sheet3：仅B有（added）
+  // Sheet3
   const wsAdded = XLSX.utils.aoa_to_sheet(buildCategoryAOA('added'));
   wsAdded['!cols'] = [{ wch: 6 }, { wch: 48 }, { wch: 32 }, { wch: 40 }];
-  XLSX.utils.book_append_sheet(wb, wsAdded, '仅B有');
+  XLSX.utils.book_append_sheet(wb, wsAdded, t('export.sheetAdded'));
 
-  // Sheet4：值不同（changed）
+  // Sheet4
   const wsChanged = XLSX.utils.aoa_to_sheet(buildCategoryAOA('changed'));
   wsChanged['!cols'] = [{ wch: 6 }, { wch: 48 }, { wch: 32 }, { wch: 40 }, { wch: 40 }];
-  XLSX.utils.book_append_sheet(wb, wsChanged, '值不同');
+  XLSX.utils.book_append_sheet(wb, wsChanged, t('export.sheetChanged'));
 
   const now = new Date();
   const pad = (n) => String(n).padStart(2, '0');
@@ -1560,8 +1552,8 @@ on('btnCopyFill', 'click', () => {
   if (!lastFillResultText) return;
   copyText(lastFillResultText).then(() => {
     const btn = $('btnCopyFill');
-    if (btn) { const old = btn.innerHTML; btn.innerHTML = '<i class="ri-check-line"></i> 已复制'; setTimeout(() => btn.innerHTML = old, 1500); }
-  }).catch(() => alert('复制失败，请手动选择文本复制。'));
+    if (btn) { const old = btn.innerHTML; btn.innerHTML = '<i class="ri-check-line"></i> ' + t('common.copied'); setTimeout(() => btn.innerHTML = old, 1500); }
+  }).catch(() => alert(t('common.copyFailed')));
 });
 // 第5步：下载结果 JSON
 on('btnDownloadFill', 'click', () => {
@@ -1609,14 +1601,12 @@ document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeStatD
 // ---------- 清理本地全部缓存 ----------
 // 清除范围：localStorage、sessionStorage、当前域可访问的 Cookie，以及 Cache Storage（若可用）。
 async function clearAllCache() {
-  const ok = window.confirm('确定要清理本地全部缓存吗？\n\n将清除：\n· localStorage（已保存的对比规则、主键、回填字段等）\n· sessionStorage\n· 当前页面可访问的 Cookie\n\n清理后页面将自动刷新。');
+  const ok = window.confirm(t('common.cache.clearConfirm'));
   if (!ok) return;
 
-  // 1. localStorage / sessionStorage
   try { localStorage.clear(); } catch (_) {}
   try { sessionStorage.clear(); } catch (_) {}
 
-  // 2. Cookie：逐个置空并设置过期时间，兼顾根路径与各级 path
   try {
     document.cookie.split(';').forEach((c) => {
       const name = c.split('=')[0].trim();
@@ -1625,14 +1615,12 @@ async function clearAllCache() {
       document.cookie = `${name}=;${expire};path=/`;
       document.cookie = `${name}=;${expire};path=${location.pathname}`;
       document.cookie = `${name}=;${expire}`;
-      // 同时尝试按当前域清除
       if (location.hostname) {
         document.cookie = `${name}=;${expire};path=/;domain=${location.hostname}`;
       }
     });
   } catch (_) {}
 
-  // 3. Cache Storage（Service Worker / PWA 缓存，若浏览器支持）
   try {
     if (window.caches && caches.keys) {
       const keys = await caches.keys();
@@ -1640,21 +1628,20 @@ async function clearAllCache() {
     }
   } catch (_) {}
 
-  alert('本地缓存已清理完成，页面将刷新。');
-  // 刷新页面以重置内存中的状态
+  alert(t('common.cache.done'));
   location.reload();
 }
 
 // 本地文件读取：将文件内容读入对应文本框
 function readLocalFile(file, targetEl, statEl, side) {
   if (!file) return;
-  const maxSize = 10 * 1024 * 1024; // 限制 10MB
+  const maxSize = 10 * 1024 * 1024;
   if (file.size > maxSize) {
-    statEl.textContent = '✗ 文件过大(>10MB)';
+    statEl.textContent = t('common.oversize');
     statEl.className = 'text-xs text-rose-500';
     return;
   }
-  statEl.textContent = '读取中…';
+  statEl.textContent = t('common.reading');
   statEl.className = 'text-xs text-indigo-500';
   const reader = new FileReader();
   reader.onload = (e) => {
@@ -1665,7 +1652,6 @@ function readLocalFile(file, targetEl, statEl, side) {
       setJsonEditorValue(targetEl, text);
     }
     parseSide(getJsonEditorValue(targetEl), statEl);
-    // 记录并展示文件名/路径（浏览器出于安全只暴露文件名）
     if (side) {
       fileNames[side] = file.webkitRelativePath || file.name || '';
       renderFileNames();
@@ -1673,7 +1659,7 @@ function readLocalFile(file, targetEl, statEl, side) {
     saveState();
   };
   reader.onerror = () => {
-    statEl.textContent = '✗ 文件读取失败';
+    statEl.textContent = t('common.readError');
     statEl.className = 'text-xs text-rose-500';
   };
   reader.readAsText(file, 'utf-8');
@@ -1712,22 +1698,68 @@ if (elLeft) elLeft.addEventListener('input', () => handleJsonEditorChange('left'
 if (elRight) elRight.addEventListener('input', () => handleJsonEditorChange('right'));
 
 // ---------- 初始化 ----------
+applyI18nHTML();
+renderLangToggle('langToggleContainer');
+// 动态填充展开层级下拉选项（支持 i18n）
+function setupExpandLevelOptions() {
+  const sel = $('optExpandLevel');
+  if (!sel) return;
+  sel.innerHTML = '';
+  const opt0 = document.createElement('option');
+  opt0.value = '0';
+  opt0.selected = true;
+  opt0.textContent = t('step4.expand0');
+  sel.appendChild(opt0);
+  for (let i = 1; i <= 10; i++) {
+    const opt = document.createElement('option');
+    opt.value = String(i);
+    opt.textContent = t('step4.expandN', { level: i });
+    sel.appendChild(opt);
+  }
+}
+
 renderConfiguredLimits();
 setupJsonEditors();
+setupExpandLevelOptions();
+
+// 语言切换时重新渲染所有动态文本和 step3 tip
+window.addEventListener('langchange', () => {
+  applyI18nHTML();
+  renderConfiguredLimits();
+  setupExpandLevelOptions();
+  updateStripPrefixLabel();
+  // 刷新 step5 tip
+  const tip5 = $('step5Tip');
+  if (tip5) tip5.innerHTML = t('step5.tip');
+  if (currentStep === 3) {
+    // 刷新主键选择器：重建 DOM 让 t() 使用当前语言
+    prepareStep3();
+  }
+  if (currentStep === 4 && lastDiffTree && elResult) {
+    renderDiff(elResult, lastDiffTree, getOptions());
+    const s = summarize(lastDiffTree);
+    renderLegend(s);
+  }
+  if (currentStep === 5) {
+    renderFillList();
+    updateFillSelCount();
+    // re-render step5 tip
+    const t5 = $('step5Tip');
+    if (t5) t5.innerHTML = t('step5.tip');
+  }
+});
+
 if (restoreState()) {
   parseSide(getJsonEditorValue(elLeft), elStatLeft);
   parseSide(getJsonEditorValue(elRight), elStatRight);
 } else {
-  // 默认加载示例数据，便于直接体验
   setJsonEditorValue(elLeft, JSON.stringify(SAMPLE_LEFT, null, 2));
   setJsonEditorValue(elRight, JSON.stringify(SAMPLE_RIGHT, null, 2));
   parseSide(getJsonEditorValue(elLeft), elStatLeft);
   parseSide(getJsonEditorValue(elRight), elStatRight);
-  fileNames = { left: '示例数据（内置）', right: '示例数据（内置）' };
+  fileNames = { left: t('common.sample.label'), right: t('common.sample.label') };
   renderFileNames();
   saveState();
 }
-// 始终从第一步「对比规则」开始
 goStep(1);
-// 同步「去掉前缀」开关的 开/关 文字
 updateStripPrefixLabel();

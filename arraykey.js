@@ -10,6 +10,8 @@
 //   - 对象数组主键必选，避免对象数组退化为下标对比
 //   - 为向后兼容历史持久化数据，下方 toKeyFields 同时接受旧的字符串格式
 
+import { t } from './i18n.js';
+
 function isPlainObj(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
 }
@@ -57,7 +59,7 @@ function collectKeyTargets(node, path, acc) {
       acc.set(path, {
         path,
         type: 'array',
-        label: path === '' ? '(根数组)' : path,
+        label: path === '' ? t('diff.rootArray') : path,
         fields,
         sample,
         count: Math.max(prev ? prev.count : 0, node.length),
@@ -133,7 +135,7 @@ export function renderKeyChooser(listEl, arrays, keyMap, onChange) {
   if (!arrays.length) {
     listEl.innerHTML = `<div class="text-center text-slate-400 py-10">
       <i class="ri-information-line text-3xl block mb-2"></i>
-      两侧 JSON 中未检测到对象数组，<br/>简单数组和普通对象无需设置对比主键。
+      ${t('arraykey.noArrays')}
     </div>`;
     return;
   }
@@ -156,8 +158,8 @@ export function renderKeyChooser(listEl, arrays, keyMap, onChange) {
     const current = toKeyFields(keyMap[a.path] !== undefined ? keyMap[a.path] : a.defaultKey);
     const sample = a.sample || {};
     const icon = 'ri-brackets-line';
-    const typeText = '对象数组';
-    const requiredText = '<span class="text-[10px] bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded">必选</span>';
+    const typeText = t('arraykey.objArray');
+    const requiredText = `<span class="text-[10px] bg-rose-100 text-rose-600 px-1.5 py-0.5 rounded">${t('arraykey.required')}</span>`;
 
     // 仅顶层简单字段可作为主键（对象/数组字段不适合作主键，仅展示不可选）
     const rows = a.fields.map(f => {
@@ -183,13 +185,13 @@ export function renderKeyChooser(listEl, arrays, keyMap, onChange) {
           <span class="font-mono text-xs ${active ? 'text-indigo-700 font-semibold' : 'text-slate-600'} shrink-0">${escapeHtml(f)}</span>
           <span class="text-slate-400 text-xs">:</span>
           <span class="font-mono text-xs truncate flex-1">${fmtVal(v)}</span>
-          ${active ? `<span class="text-[10px] bg-indigo-600 text-white px-1.5 py-0.5 rounded shrink-0">主键 ${order + 1}</span>` : ''}
+          ${active ? `<span class="text-[10px] bg-indigo-600 text-white px-1.5 py-0.5 rounded shrink-0">${t('arraykey.keyTag', { order: order + 1 })}</span>` : ''}
         </div>`;
     }).join('');
 
     const hasSample = a.fields.length && a.sample;
     const keyText = current.map(escapeHtml).join('<span class="text-slate-400"> + </span>');
-    const emptyTip = `<div class="text-xs text-rose-500 flex items-center gap-1"><i class="ri-error-warning-line"></i> 请为该对象数组选择至少一个主键字段（必选，不可使用下标对比）</div>`;
+    const emptyTip = `<div class="text-xs text-rose-500 flex items-center gap-1"><i class="ri-error-warning-line"></i> ${t('arraykey.notSelected')}</div>`;
     return `
       <div class="key-array-block border border-slate-200 rounded-lg overflow-hidden transition-all duration-300" data-path="${a.path}" data-arr-index="${idx}" id="arrCard${idx}">
         <div class="flex items-center gap-2 px-3 py-2 bg-slate-50 border-b border-slate-200">
@@ -197,19 +199,19 @@ export function renderKeyChooser(listEl, arrays, keyMap, onChange) {
           <span class="text-[10px] bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded">${typeText}</span>
           ${requiredText}
           <span class="font-mono text-sm text-slate-700 break-all">${a.label}</span>
-          <span class="ml-auto text-[10px] text-slate-400">${a.fields.length} 字段</span>
+          <span class="ml-auto text-[10px] text-slate-400">${t('arraykey.fieldsCount', { n: a.fields.length })}</span>
         </div>
         <div class="px-3 py-2">
           <div class="text-[11px] text-slate-400 mb-1.5 flex items-center gap-1 flex-wrap">
-            <i class="ri-cursor-line"></i> 点击下方字段作为${typeText}对比主键（可多选组成<b class="text-indigo-500 mx-0.5">复合主键</b>，按点击顺序联合匹配）
+            <i class="ri-cursor-line"></i> ${t('arraykey.choosePrompt', { typeText })}
           </div>
           <div class="space-y-1">
-            ${hasSample ? rows : '<div class="text-xs text-slate-400 py-2">无可预览样本</div>'}
+            ${hasSample ? rows : `<div class="text-xs text-slate-400 py-2">${t('arraykey.noSample')}</div>`}
           </div>
           <div class="mt-2 pt-2 border-t border-dashed border-slate-200">
             ${current.length === 0
               ? emptyTip
-              : `<div class="text-xs text-emerald-600 flex items-center gap-1 flex-wrap"><i class="ri-checkbox-circle-line"></i> 已选${current.length > 1 ? '复合' : ''}主键：<span class="font-mono font-semibold">${keyText}</span></div>`}
+              : `<div class="text-xs text-emerald-600 flex items-center gap-1 flex-wrap"><i class="ri-checkbox-circle-line"></i> ${t('arraykey.selected', { compound: current.length > 1 ? t('arraykey.compound') : '' })}<span class="font-mono font-semibold">${keyText}</span></div>`}
           </div>
         </div>
       </div>`;

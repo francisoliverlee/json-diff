@@ -4,6 +4,8 @@
 //   2. 数组对比：先比个数；简单类型数组仅按元素个数对比；对象数组按对象规则对比
 //   3. 支持选项：忽略大小写 / 忽略时间格式差异 / （隐藏相同项由渲染层处理）
 
+import { t } from './i18n.js';
+
 /**
  * 差异节点结构（统一抽象，供渲染层使用）
  * {
@@ -22,8 +24,8 @@
 // 「对象数组未设置主键」错误：要求每个对象数组（含多层嵌套路径中的每一层）都必须设置主键，
 // 否则对比/回填直接报错，绝不退化为按下标对齐。
 function makeNoArrayKeyError(arrayPath) {
-  const label = arrayPath || '(根数组)';
-  const err = new Error(`对象数组「${label}」未设置对比主键，无法对比。请回到第 3 步为该数组选择主键。`);
+  const label = arrayPath || t('diff.rootArray');
+  const err = new Error(t('diff.noArrayKey', { path: label }));
   err.code = 'NO_ARRAY_KEY';
   err.arrayPath = arrayPath;
   return err;

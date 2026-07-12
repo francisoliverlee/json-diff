@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>JSON 可视化对比工具</title>
+  <title data-i18n="app.title">JSON 可视化对比</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/remixicon@3.5.0/fonts/remixicon.css" />
@@ -32,9 +32,10 @@
       <div class="flex items-center gap-3">
         <i class="ri-git-merge-line text-3xl"></i>
         <div>
-          <h1 class="text-2xl font-bold tracking-wide">JSON 可视化对比</h1>
+          <h1 class="text-2xl font-bold tracking-wide" data-i18n="app.title">JSON 可视化对比</h1>
         </div>
       </div>
+      <div id="langToggleContainer"></div>
     </div>
   </header>
 
@@ -46,40 +47,40 @@
         <li class="step-item flex-1 flex items-center gap-2 cursor-pointer group" data-step="1">
           <span class="step-dot w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm shrink-0 transition">1</span>
           <div class="hidden sm:block">
-            <div class="step-title text-sm font-semibold transition">对比规则</div>
-            <div class="text-[11px] text-slate-400">了解对比逻辑</div>
+            <div class="step-title text-sm font-semibold transition" data-i18n="step.1.title">对比规则</div>
+            <div class="text-[11px] text-slate-400" data-i18n="step.1.subtitle">了解对比逻辑</div>
           </div>
           <i class="ri-arrow-right-s-line text-slate-300 ml-auto hidden md:block"></i>
         </li>
         <li class="step-item flex-1 flex items-center gap-2 cursor-pointer group" data-step="2">
           <span class="step-dot w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm shrink-0 transition">2</span>
           <div class="hidden sm:block">
-            <div class="step-title text-sm font-semibold transition">对比文件</div>
-            <div class="text-[11px] text-slate-400">输入左右 JSON</div>
+            <div class="step-title text-sm font-semibold transition" data-i18n="step.2.title">对比文件</div>
+            <div class="text-[11px] text-slate-400" data-i18n="step.2.subtitle">输入左右 JSON</div>
           </div>
           <i class="ri-arrow-right-s-line text-slate-300 ml-auto hidden md:block"></i>
         </li>
         <li class="step-item flex-1 flex items-center gap-2 cursor-pointer group" data-step="3">
           <span class="step-dot w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm shrink-0 transition">3</span>
           <div class="hidden sm:block">
-            <div class="step-title text-sm font-semibold transition">对比主键</div>
-            <div class="text-[11px] text-slate-400">对象/对象数组主键</div>
+            <div class="step-title text-sm font-semibold transition" data-i18n="step.3.title">对比主键</div>
+            <div class="text-[11px] text-slate-400" data-i18n="step.3.subtitle">对象/对象数组主键</div>
           </div>
           <i class="ri-arrow-right-s-line text-slate-300 ml-auto hidden md:block"></i>
         </li>
         <li class="step-item flex-1 flex items-center gap-2 cursor-pointer group" data-step="4">
           <span class="step-dot w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm shrink-0 transition">4</span>
           <div class="hidden sm:block">
-            <div class="step-title text-sm font-semibold transition">对比结果</div>
-            <div class="text-[11px] text-slate-400">差异可视化</div>
+            <div class="step-title text-sm font-semibold transition" data-i18n="step.4.title">对比结果</div>
+            <div class="text-[11px] text-slate-400" data-i18n="step.4.subtitle">差异可视化</div>
           </div>
           <i class="ri-arrow-right-s-line text-slate-300 ml-auto hidden md:block"></i>
         </li>
         <li class="step-item flex-1 flex items-center gap-2 cursor-pointer group" data-step="5">
           <span class="step-dot w-9 h-9 rounded-full flex items-center justify-center font-bold text-sm shrink-0 transition">5</span>
           <div class="hidden sm:block">
-            <div class="step-title text-sm font-semibold transition">对比回填</div>
-            <div class="text-[11px] text-slate-400">用旧值覆盖新JSON</div>
+            <div class="step-title text-sm font-semibold transition" data-i18n="step.5.title">对比回填</div>
+            <div class="text-[11px] text-slate-400" data-i18n="step.5.subtitle">用旧值覆盖新JSON</div>
           </div>
         </li>
       </ol>
@@ -93,12 +94,12 @@
         <i class="ri-tools-line text-xl"></i>
       </button>
       <div id="toolDockPanel" class="tool-dock-panel hidden ml-2 bg-white border border-slate-200 rounded-xl shadow-xl p-3 w-72">
-        <div class="text-xs text-slate-400 flex items-center gap-1 mb-2"><i class="ri-tools-line"></i> 工具</div>
+        <div class="text-xs text-slate-400 flex items-center gap-1 mb-2"><i class="ri-tools-line"></i> <span data-i18n="tool.title">工具</span></div>
         <button id="btnClearCache" type="button"
           class="w-full inline-flex items-center justify-center gap-1.5 px-3 py-2 text-sm rounded-lg border border-rose-200 text-rose-600 bg-rose-50 hover:bg-rose-100 transition">
-          <i class="ri-delete-bin-6-line"></i> 清理缓存
+          <i class="ri-delete-bin-6-line"></i> <span data-i18n="tool.clearCache">清理缓存</span>
         </button>
-        <p class="mt-2 text-[11px] text-slate-400 leading-relaxed">清除本工具在本地存储的全部数据（Cookie、localStorage、sessionStorage 等）。</p>
+        <p class="mt-2 text-[11px] text-slate-400 leading-relaxed" data-i18n="tool.clearCacheDesc">清除本工具在本地存储的全部数据。</p>
       </div>
     </div>
 
@@ -107,51 +108,51 @@
       <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         <div class="p-6 text-sm text-slate-700 space-y-6">
           <div>
-            <h3 class="text-base font-bold text-indigo-700 flex items-center gap-2 mb-2"><i class="ri-braces-line"></i> 一、对象（Object）对比</h3>
+            <h3 class="text-base font-bold text-indigo-700 flex items-center gap-2 mb-2"><i class="ri-braces-line"></i> <span data-i18n="rule.obj.title">一、对象（Object）对比</span></h3>
             <ol class="list-decimal pl-6 space-y-1.5 marker:text-indigo-400">
-              <li>先对比两侧对象的 <b>Key 数量</b>，数量不同会高亮提示。</li>
-              <li>Key 数量相同时，进一步对比 <b>Key 是否完全一致</b>，不一致会提示「key不一致」。</li>
-              <li>对相同的 Key，再逐一对比其 <b>Value 差异</b>。</li>
-              <li>仅左侧（A）存在的 Key 标记为 <b>「仅A有」</b>；仅右侧（B）存在的标记为 <b>「仅B有」</b>。</li>
+              <li data-i18n="rule.obj.1">先对比两侧对象的 <b>Key 数量</b>，数量不同会高亮提示。</li>
+              <li data-i18n="rule.obj.2">Key 数量相同时，进一步对比 <b>Key 是否完全一致</b>，不一致会提示「key不一致」。</li>
+              <li data-i18n="rule.obj.3">对相同的 Key，再逐一对比其 <b>Value 差异</b>。</li>
+              <li data-i18n="rule.obj.4">仅左侧（A）存在的 Key 标记为 <b>「仅A有」</b>；仅右侧（B）存在的标记为 <b>「仅B有」</b>。</li>
             </ol>
           </div>
           <div>
-            <h3 class="text-base font-bold text-indigo-700 flex items-center gap-2 mb-2"><i class="ri-brackets-line"></i> 二、数组（Array）对比</h3>
+            <h3 class="text-base font-bold text-indigo-700 flex items-center gap-2 mb-2"><i class="ri-brackets-line"></i> <span data-i18n="rule.arr.title">二、数组（Array）对比</span></h3>
             <ol class="list-decimal pl-6 space-y-1.5 marker:text-indigo-400">
-              <li>首先对比两侧数组的 <b>元素个数（长度）</b>，长度不同会高亮提示。</li>
-              <li>元素为<b>简单类型</b>（数字、字符串、布尔等）时，不需要设置主键，只按<b>元素个数（长度）</b>判断差异，不比较具体元素值。</li>
-              <li>元素为<b>对象</b>时，按上述「对象对比规则」递归对比，并可在第三步选择对比主键。</li>
-              <li>多出/缺失的元素分别标记为「仅B有」/「仅A有」。</li>
+              <li data-i18n="rule.arr.1">首先对比两侧数组的 <b>元素个数（长度）</b>，长度不同会高亮提示。</li>
+              <li data-i18n="rule.arr.2">元素为<b>简单类型</b>（数字、字符串、布尔等）时，不需要设置主键，只按<b>元素个数（长度）</b>判断差异，不比较具体元素值。</li>
+              <li data-i18n="rule.arr.3">元素为<b>对象</b>时，按上述「对象对比规则」递归对比，并可在第三步选择对比主键。</li>
+              <li data-i18n="rule.arr.4">多出/缺失的元素分别标记为「仅B有」/「仅A有」。</li>
             </ol>
           </div>
           <div>
-            <h3 class="text-base font-bold text-indigo-700 flex items-center gap-2 mb-2"><i class="ri-equalizer-line"></i> 三、可选开关</h3>
+            <h3 class="text-base font-bold text-indigo-700 flex items-center gap-2 mb-2"><i class="ri-equalizer-line"></i> <span data-i18n="rule.opts.title">三、可选开关</span></h3>
             <ul class="space-y-2">
-              <li class="flex gap-2"><i class="ri-font-size-2 text-indigo-500 mt-0.5"></i><span><b>忽略大小写</b>：字符串 Value 比较时不区分大小写，如 <code class="bg-slate-100 px-1 rounded">"Alice"</code> 与 <code class="bg-slate-100 px-1 rounded">"alice"</code> 视为相同。</span></li>
-              <li class="flex gap-2"><i class="ri-time-line text-indigo-500 mt-0.5"></i><span><b>忽略时间/日期类型的 Value</b>：若 Value 是日期或时间类型，则<b>跳过比较</b>，直接视为相同（无论格式是否不同）。</span></li>
-              <li class="flex gap-2"><i class="ri-eye-off-line text-indigo-500 mt-0.5"></i><span><b>隐藏相同的 Key/Value</b>：仅展示存在差异的节点，相同项不显示（默认开启）。</span></li>
-              <li class="flex gap-2"><i class="ri-collapse-diagonal-line text-indigo-500 mt-0.5"></i><span><b>展开层级</b>：可选择「折叠全部」或仅展开前 N 层 JSON 节点，第一层以下节点会按所选层级自动折叠。</span></li>
+              <li class="flex gap-2"><i class="ri-font-size-2 text-indigo-500 mt-0.5"></i><span data-i18n="rule.opts.ignoreCase"><b>忽略大小写</b>：字符串 Value 比较时不区分大小写。</span></li>
+              <li class="flex gap-2"><i class="ri-time-line text-indigo-500 mt-0.5"></i><span data-i18n="rule.opts.ignoreTime"><b>忽略时间/日期类型的 Value</b>：若 Value 是日期或时间类型，则<b>跳过比较</b>，直接视为相同。</span></li>
+              <li class="flex gap-2"><i class="ri-eye-off-line text-indigo-500 mt-0.5"></i><span data-i18n="rule.opts.hideSame"><b>隐藏相同的 Key/Value</b>：仅展示存在差异的节点，相同项不显示（默认开启）。</span></li>
+              <li class="flex gap-2"><i class="ri-collapse-diagonal-line text-indigo-500 mt-0.5"></i><span data-i18n="rule.opts.expand"><b>展开层级</b>：可选择「折叠全部」或仅展开前 N 层 JSON 节点。</span></li>
             </ul>
           </div>
           <div>
-            <h3 class="text-base font-bold text-indigo-700 flex items-center gap-2 mb-2"><i class="ri-node-tree"></i> 四、差异展示规则</h3>
+            <h3 class="text-base font-bold text-indigo-700 flex items-center gap-2 mb-2"><i class="ri-node-tree"></i> <span data-i18n="rule.display.title">四、差异展示规则</span></h3>
             <ol class="list-decimal pl-6 space-y-1.5 marker:text-indigo-400">
-              <li>数组元素按 <b>下标顺序</b>（或所选主键顺序）展示差异。</li>
-              <li>对象的 Key 先按 <b>字母升序</b>排序后再展示。</li>
-              <li><b>值不同</b>时，展示形式为：<code class="bg-slate-100 px-1 rounded">左value &lt;------&gt; 右value</code>。</li>
-              <li><b>仅左侧（A）有</b>的 Key，提示标签写在 Key 的<b>左侧</b>；<b>仅右侧（B）有</b>的 Key，提示标签写在 Key 的<b>右侧</b>。</li>
+              <li data-i18n="rule.display.1">数组元素按 <b>下标顺序</b>（或所选主键顺序）展示差异。</li>
+              <li data-i18n="rule.display.2">对象的 Key 先按 <b>字母升序</b>排序后再展示。</li>
+              <li data-i18n="rule.display.3"><b>值不同</b>时，展示形式为：<code class="bg-slate-100 px-1 rounded">左value &lt;------&gt; 右value</code>。</li>
+              <li data-i18n="rule.display.4"><b>仅左侧（A）有</b>的 Key，提示标签写在 Key 的<b>左侧</b>；<b>仅右侧（B）有</b>的 Key，提示标签写在 Key 的<b>右侧</b>。</li>
             </ol>
           </div>
           <div class="flex flex-wrap gap-3 pt-1 text-xs">
-            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-sm bg-emerald-200 inline-block"></span> 仅A有</span>
-            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-sm bg-rose-200 inline-block"></span> 仅B有</span>
-            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-sm bg-amber-200 inline-block"></span> 值不同</span>
-            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-sm bg-slate-100 inline-block border border-slate-200"></span> 相同</span>
+            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-sm bg-emerald-200 inline-block"></span> <span data-i18n="rule.legend.a">仅A有</span></span>
+            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-sm bg-rose-200 inline-block"></span> <span data-i18n="rule.legend.b">仅B有</span></span>
+            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-sm bg-amber-200 inline-block"></span> <span data-i18n="rule.legend.changed">值不同</span></span>
+            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-sm bg-slate-100 inline-block border border-slate-200"></span> <span data-i18n="rule.legend.same">相同</span></span>
           </div>
         </div>
         <div class="px-6 py-4 border-t border-slate-200 flex justify-end">
           <button data-goto="2" class="step-next bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-6 py-2.5 rounded-lg flex items-center gap-2 transition">
-            下一步：选择文件 <i class="ri-arrow-right-line"></i>
+            <span data-i18n="rule.btn.next">下一步：选择文件</span> <i class="ri-arrow-right-line"></i>
           </button>
         </div>
       </div>
@@ -164,13 +165,13 @@
           <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div class="border border-slate-200 rounded-xl flex flex-col overflow-hidden">
               <div class="flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-200">
-                <span class="font-semibold text-slate-700 flex items-center gap-2"><i class="ri-file-text-line text-indigo-500"></i> 左侧【旧】 JSON (A)</span>
+                <span class="font-semibold text-slate-700 flex items-center gap-2"><i class="ri-file-text-line text-indigo-500"></i> <span data-i18n="step2.left.label">左侧【旧】 JSON (A)</span></span>
                 <div class="flex items-center gap-3">
                   <button id="btnFileLeft" class="text-xs text-indigo-600 hover:text-indigo-800 flex items-center gap-1 transition">
-                    <i class="ri-folder-open-line"></i> 选择【旧JSON】本地文件
+                    <i class="ri-folder-open-line"></i> <span data-i18n="step2.left.btn">选择【旧JSON】本地文件</span>
                   </button>
                   <input type="file" id="fileLeft" accept=".json,application/json,text/plain" class="hidden" />
-                  <span id="statLeft" class="text-xs text-slate-400">等待输入…</span>
+                  <span id="statLeft" class="text-xs text-slate-400" data-i18n="step2.waiting">等待输入…</span>
                 </div>
               </div>
               <div id="fileNameLeft" class="hidden px-4 py-1.5 bg-indigo-50/60 border-b border-indigo-100 text-xs text-indigo-700 items-center gap-1.5">
@@ -185,13 +186,13 @@
 
             <div class="border border-slate-200 rounded-xl flex flex-col overflow-hidden">
               <div class="flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-200">
-                <span class="font-semibold text-slate-700 flex items-center gap-2"><i class="ri-file-text-line text-violet-500"></i> 右侧【新】 JSON (B)</span>
+                <span class="font-semibold text-slate-700 flex items-center gap-2"><i class="ri-file-text-line text-violet-500"></i> <span data-i18n="step2.right.label">右侧【新】 JSON (B)</span></span>
                 <div class="flex items-center gap-3">
                   <button id="btnFileRight" class="text-xs text-violet-600 hover:text-violet-800 flex items-center gap-1 transition">
-                    <i class="ri-folder-open-line"></i> 选择【新JSON】本地文件
+                    <i class="ri-folder-open-line"></i> <span data-i18n="step2.right.btn">选择【新JSON】本地文件</span>
                   </button>
                   <input type="file" id="fileRight" accept=".json,application/json,text/plain" class="hidden" />
-                  <span id="statRight" class="text-xs text-slate-400">等待输入…</span>
+                  <span id="statRight" class="text-xs text-slate-400" data-i18n="step2.waiting">等待输入…</span>
                 </div>
               </div>
               <div id="fileNameRight" class="hidden px-4 py-1.5 bg-violet-50/60 border-b border-violet-100 text-xs text-violet-700 items-center gap-1.5">
@@ -207,10 +208,10 @@
         </div>
         <div class="px-6 py-4 border-t border-slate-200 flex justify-between">
           <button data-goto="1" class="step-prev px-5 py-2.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 transition flex items-center gap-2">
-            <i class="ri-arrow-left-line"></i> 上一步
+            <i class="ri-arrow-left-line"></i> <span data-i18n="step2.btn.prev">上一步</span>
           </button>
           <button id="btnToStep3" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-6 py-2.5 rounded-lg flex items-center gap-2 transition">
-            下一步：选择主键 <i class="ri-arrow-right-line"></i>
+            <span data-i18n="step2.btn.next">下一步：选择主键</span> <i class="ri-arrow-right-line"></i>
           </button>
         </div>
       </div>
@@ -219,27 +220,26 @@
     <!-- ========== 第3步：选择对比主键 ========== -->
     <section class="step-panel hidden" data-step="3">
       <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div class="px-6 py-3 bg-indigo-50 text-xs text-indigo-700 leading-relaxed">
-          检测到 JSON 中包含对象或对象数组时，可为其选择<b>对比主键</b>：对象主键用于校验同层对象身份字段，对象数组主键用于让相同主键的数组元素整体对齐对比，而非按下标。<br/>
-          支持选择多个字段组成<b>复合主键</b>；对象主键可选，对象数组主键必选。当前最多支持 <b><span id="maxJsonDepthText">-</span> 层</b> JSON 层级，超过后会提示不支持。
+        <div class="px-6 py-3 bg-indigo-50 text-xs text-indigo-700 leading-relaxed" id="step3Tip">
+          检测到 JSON 中包含对象或对象数组时，可为其选择<b>对比主键</b>。当前最多支持 <b><span id="maxJsonDepthText">-</span> 层</b> JSON 层级。
         </div>
         <!-- 多目标快速切换导航 -->
         <div id="arrNav" class="hidden items-center justify-between px-6 py-3 border-b border-slate-200 bg-white">
           <button id="btnPrevArr" class="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 transition text-sm">
-            <i class="ri-arrow-left-s-line"></i> 上一个目标
+            <i class="ri-arrow-left-s-line"></i> <span data-i18n="step3.prevTarget">上一个目标</span>
           </button>
-          <span class="text-sm text-slate-500">第 <span id="arrCur" class="font-semibold text-indigo-600">1</span> / <span id="arrTotal">1</span> 个目标</span>
+          <span class="text-sm text-slate-500"><span data-i18n="step3.targetCounter" id="step3TargetCounter" data-i18n-vars='{"cur":"1","total":"1"}'>第 1 / 1 个目标</span></span>
           <button id="btnNextArr" class="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 transition text-sm">
-            下一个目标 <i class="ri-arrow-right-s-line"></i>
+            <span data-i18n="step3.nextTarget">下一个目标</span> <i class="ri-arrow-right-s-line"></i>
           </button>
         </div>
         <div id="keyList" class="p-6 space-y-3 max-h-[480px] overflow-auto"></div>
         <div class="px-6 py-4 border-t border-slate-200 flex justify-between">
           <button data-goto="2" class="step-prev px-5 py-2.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 transition flex items-center gap-2">
-            <i class="ri-arrow-left-line"></i> 上一步
+            <i class="ri-arrow-left-line"></i> <span data-i18n="step3.btn.prev">上一步</span>
           </button>
           <button id="btnToStep4" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-6 py-2.5 rounded-lg flex items-center gap-2 transition">
-            下一步：查看结果 <i class="ri-arrow-right-line"></i>
+            <span data-i18n="step3.btn.next">下一步：查看结果</span> <i class="ri-arrow-right-line"></i>
           </button>
         </div>
       </div>
@@ -252,81 +252,64 @@
           <div class="flex items-center justify-between flex-wrap gap-2">
             <div class="flex items-center gap-2">
               <button id="btnRecompare" class="text-sm bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-1.5 rounded-lg flex items-center gap-1 transition">
-                <i class="ri-refresh-line"></i> 重新对比
+                <i class="ri-refresh-line"></i> <span data-i18n="step4.recompare">重新对比</span>
               </button>
-              <button id="btnDownloadStat" class="text-sm bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded-lg flex items-center gap-1 transition" title="导出 4 个 Sheet 的表格：统计信息 + 仅A有 + 仅B有 + 值不同（含完整前缀路径）">
-                <i class="ri-file-excel-2-line"></i> 下载对比明细
+              <button id="btnDownloadStat" class="text-sm bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-1.5 rounded-lg flex items-center gap-1 transition" data-i18n-title="step4.downloadStatTitle" title="导出差异明细表格">
+                <i class="ri-file-excel-2-line"></i> <span data-i18n="step4.downloadStat">下载对比明细</span>
               </button>
             </div>
-            <label class="flex items-center gap-2 cursor-pointer select-none text-xs text-slate-600" title="打开：去掉路径前缀，仅按最终 key 名聚合统计；关闭：保留完整前缀路径">
+            <label class="flex items-center gap-2 cursor-pointer select-none text-xs text-slate-600" data-i18n-title="step4.stripPrefixTitle" title="去掉路径前缀统计">
               <i class="ri-scissors-cut-line"></i>
-              <span>去掉前缀（仅按最终 key 统计）</span>
-              <!-- 开关 -->
+              <span data-i18n="step4.stripPrefix">去掉前缀（仅按最终 key 统计）</span>
               <input type="checkbox" id="optStripPrefix" class="peer sr-only" checked />
-              <span class="relative w-9 h-5 bg-slate-300 rounded-full transition-colors peer-checked:bg-indigo-600
-                           after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4
-                           after:bg-white after:rounded-full after:shadow after:transition-transform peer-checked:after:translate-x-4"></span>
-              <span class="text-[11px] font-semibold peer-checked:text-indigo-600 text-slate-400" id="stripPrefixState">开</span>
+              <span class="relative w-9 h-5 bg-slate-300 rounded-full transition-colors peer-checked:bg-indigo-600 after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:w-4 after:h-4 after:bg-white after:rounded-full after:shadow after:transition-transform peer-checked:after:translate-x-4"></span>
+              <span class="text-[11px] font-semibold peer-checked:text-indigo-600 text-slate-400" id="stripPrefixState" data-i18n="step4.stripOn">开</span>
             </label>
           </div>
-          <!-- 按 key 维度统计：仅A有 / 仅B有 / 值不同 / 相同 -->
-          <div id="legendBar" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            <!-- 由 main.js 动态渲染 -->
-          </div>
+          <div id="legendBar" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3"></div>
         </div>
         <div id="diffFullscreenWrap" class="bg-white">
-          <!-- 对比选项（调整后实时重新对比） -->
           <div id="diffOptionBar" class="flex flex-wrap items-center gap-x-6 gap-y-2 px-5 py-3 border-b border-slate-200 bg-white">
-            <span class="text-sm font-semibold text-slate-500 flex items-center gap-1"><i class="ri-settings-3-line"></i> 对比选项</span>
+            <span class="text-sm font-semibold text-slate-500 flex items-center gap-1"><i class="ri-settings-3-line"></i> <span data-i18n="step4.optionTitle">对比选项</span></span>
             <label class="flex items-center gap-2 cursor-pointer select-none">
               <input type="checkbox" id="optIgnoreCase" class="w-4 h-4 accent-indigo-600" />
-              <span class="text-sm text-slate-700 flex items-center gap-1"><i class="ri-font-size-2"></i> 忽略大小写</span>
+              <span class="text-sm text-slate-700 flex items-center gap-1"><i class="ri-font-size-2"></i> <span data-i18n="step4.ignoreCase">忽略大小写</span></span>
             </label>
-            <label class="flex items-center gap-2 cursor-pointer select-none">
+            <label class="flex items-center gap-2 cursor-pointer select-none" data-i18n-title="step4.ignoreTimeTitle" title="若 value 是日期/时间类型，则跳过比较">
               <input type="checkbox" id="optIgnoreTime" class="w-4 h-4 accent-indigo-600" />
-              <span class="text-sm text-slate-700 flex items-center gap-1" title="若 value 是日期/时间类型，则跳过比较"><i class="ri-time-line"></i> 忽略时间/日期类型的 value</span>
+              <span class="text-sm text-slate-700 flex items-center gap-1"><i class="ri-time-line"></i> <span data-i18n="step4.ignoreTime">忽略时间/日期类型的 value</span></span>
             </label>
             <label class="flex items-center gap-2 cursor-pointer select-none">
               <input type="checkbox" id="optHideSame" class="w-4 h-4 accent-indigo-600" checked />
-              <span class="text-sm text-slate-700 flex items-center gap-1"><i class="ri-eye-off-line"></i> 隐藏相同的 Key/Value</span>
+              <span class="text-sm text-slate-700 flex items-center gap-1"><i class="ri-eye-off-line"></i> <span data-i18n="step4.hideSame">隐藏相同的 Key/Value</span></span>
             </label>
             <label class="flex items-center gap-2 select-none">
-              <span class="text-sm text-slate-700 flex items-center gap-1"><i class="ri-collapse-diagonal-line"></i> 展开层级</span>
+              <span class="text-sm text-slate-700 flex items-center gap-1"><i class="ri-collapse-diagonal-line"></i> <span data-i18n="step4.expand">展开层级</span></span>
               <select id="optExpandLevel" class="text-sm border border-slate-300 rounded-lg px-2.5 py-1.5 bg-white text-slate-700 outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-300">
-                <option value="0" selected>折叠全部</option>
-                <option value="1">展开1层</option>
-                <option value="2">展开2层</option>
-                <option value="3">展开3层</option>
-                <option value="4">展开4层</option>
-                <option value="5">展开5层</option>
-                <option value="6">展开6层</option>
-                <option value="7">展开7层</option>
-                <option value="8">展开8层</option>
-                <option value="9">展开9层</option>
-                <option value="10">展开10层</option>
+                <option value="0" selected data-i18n="step4.expand0">折叠全部</option>
               </select>
             </label>
-            <button id="btnFullscreen" class="ml-auto text-sm border border-indigo-300 text-indigo-600 hover:bg-indigo-50 transition px-4 py-1.5 rounded-lg flex items-center gap-1" title="全屏查看差异结果（ESC 退出）">
-              <i class="ri-fullscreen-line"></i> 全屏查看
+            <button id="btnFullscreen" class="ml-auto text-sm border border-indigo-300 text-indigo-600 hover:bg-indigo-50 transition px-4 py-1.5 rounded-lg flex items-center gap-1" data-i18n-title="step4.fullscreenTitle" title="全屏查看差异结果（ESC 退出）">
+              <i class="ri-fullscreen-line"></i> <span data-i18n="step4.fullscreen">全屏查看</span>
             </button>
           </div>
           <div id="diffResult" class="p-5 font-mono text-sm overflow-auto max-h-[520px]">
             <div class="text-slate-400 text-center py-16">
               <i class="ri-search-eye-line text-5xl block mb-3 opacity-40"></i>
-              进入此步骤将自动执行对比
+              <span data-i18n="step4.loading">进入此步骤将自动执行对比</span>
             </div>
           </div>
         </div>
         <div class="px-6 py-4 border-t border-slate-200 flex justify-between">
           <button data-goto="3" class="step-prev px-5 py-2.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 transition flex items-center gap-2">
-            <i class="ri-arrow-left-line"></i> 上一步
+            <i class="ri-arrow-left-line"></i> <span data-i18n="step4.btn.prev">上一步</span>
           </button>
           <div class="flex items-center gap-2">
             <button data-goto="2" class="step-prev px-5 py-2.5 rounded-lg border border-indigo-300 text-indigo-600 hover:bg-indigo-50 transition flex items-center gap-2">
-              <i class="ri-edit-line"></i> 修改输入
+              <i class="ri-edit-line"></i> <span data-i18n="step4.btn.edit">修改输入</span>
             </button>
             <button id="btnToStep5" class="bg-indigo-600 hover:bg-indigo-700 text-white font-semibold px-6 py-2.5 rounded-lg flex items-center gap-2 transition">
-              下一步：字段回填 <i class="ri-arrow-right-line"></i>
+              <span data-i18n="step4.btn.next">下一步：字段回填</span> <i class="ri-arrow-right-line"></i>
             </button>
           </div>
         </div>
@@ -336,105 +319,96 @@
     <!-- ========== 第5步：字段回填 ========== -->
     <section class="step-panel hidden" data-step="5">
       <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        <div class="px-6 py-3 bg-indigo-50 text-xs text-indigo-700 leading-relaxed">
-          将<b>左侧（旧）JSON</b> 中指定字段的值，按<b>主键</b>回填到<b>右侧（新）JSON</b> 的同一对象：
-          右侧该字段<b>不存在则新增</b>，<b>存在则用旧值覆盖</b>。<br/>
-          下方仅列出对比结果中<b>值不同</b>且<b>非对象数组主键</b>的字段，可搜索、勾选后点击「执行替换」。
+        <div class="px-6 py-3 bg-indigo-50 text-xs text-indigo-700 leading-relaxed" id="step5Tip">
+          将<b>左侧（旧）JSON</b> 中指定字段的值，按<b>主键</b>回填到<b>右侧（新）JSON</b> 的同一对象。下方仅列出对比结果中<b>值不同</b>且<b>非对象数组主键</b>的字段。
         </div>
 
         <div class="p-6 space-y-4">
-          <!-- 顶部操作栏 -->
           <div class="flex flex-wrap items-center justify-end gap-3">
-            <span class="text-xs text-slate-500 mr-auto">已选 <b id="fillSelCount" class="text-indigo-600">0</b> 项</span>
+            <span class="text-xs text-slate-500 mr-auto"><span data-i18n="step5.selected" data-i18n-vars='{"n":"0"}'>已选 0 项</span></span>
             <button id="btnDoFill" class="text-sm bg-indigo-600 hover:bg-indigo-700 text-white px-5 py-2 rounded-lg flex items-center gap-1 transition disabled:opacity-50 disabled:cursor-not-allowed">
-              <i class="ri-magic-line"></i> 执行替换
+              <i class="ri-magic-line"></i> <span data-i18n="step5.execute">执行替换</span>
             </button>
           </div>
 
-          <!-- 左右双列表：左=备选字段，右=已选字段 -->
           <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <!-- 左：备选字段 -->
             <div class="border border-slate-200 rounded-lg flex flex-col overflow-hidden">
               <div class="px-3 py-2 bg-slate-50 border-b border-slate-200 flex items-center gap-2">
                 <i class="ri-list-check-2 text-slate-500"></i>
-                <span class="text-sm font-semibold text-slate-700">备选字段</span>
-                <span class="text-xs text-slate-400">(<b id="fillAvailCount">0</b>)</span>
+                <span class="text-sm font-semibold text-slate-700" data-i18n="step5.availTitle">备选字段</span>
+                <span class="text-xs text-slate-400" id="fillAvailCountWrap">(<b id="fillAvailCount">0</b>)</span>
               </div>
               <div class="px-3 py-2 border-b border-slate-100">
                 <div class="relative">
                   <i class="ri-search-line absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"></i>
-                  <input id="fillSearch" type="text" placeholder="搜索字段路径，如 role / address.city / team[].role"
+                  <input id="fillSearch" type="text" data-i18n-placeholder="step5.searchPlaceholder" placeholder="搜索字段路径，如 role / address.city / team[].role"
                     class="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-sm outline-none focus:border-indigo-400 focus:ring-1 focus:ring-indigo-300" />
                 </div>
               </div>
               <div id="fillAvailList" class="max-h-[360px] overflow-auto divide-y divide-slate-100">
                 <div class="text-center text-slate-400 py-10">
-                  <i class="ri-information-line text-3xl block mb-2"></i>请先在第二步填写有效的 JSON
+                  <i class="ri-information-line text-3xl block mb-2"></i>
+                  <span data-i18n="step5.availEmpty">请先在第二步填写有效的 JSON</span>
                 </div>
               </div>
             </div>
 
-            <!-- 右：已选字段 -->
             <div class="border border-indigo-200 rounded-lg flex flex-col overflow-hidden bg-indigo-50/30">
               <div class="px-3 py-2 bg-indigo-50 border-b border-indigo-200 flex items-center gap-2">
                 <i class="ri-checkbox-circle-line text-indigo-500"></i>
-                <span class="text-sm font-semibold text-indigo-700">已选字段</span>
-                <span class="text-xs text-indigo-400">(<b id="fillSelCount2">0</b>)</span>
+                <span class="text-sm font-semibold text-indigo-700" data-i18n="step5.selTitle">已选字段</span>
+                <span class="text-xs text-indigo-400" id="fillSelCount2Wrap">(<b id="fillSelCount2">0</b>)</span>
                 <button id="fillClearSel" class="ml-auto text-xs px-2 py-1 rounded border border-indigo-300 text-indigo-600 hover:bg-white transition flex items-center gap-1">
-                  <i class="ri-delete-bin-line"></i> 全部移除
+                  <i class="ri-delete-bin-line"></i> <span data-i18n="step5.clearAll">全部移除</span>
                 </button>
               </div>
               <div id="fillSelList" class="max-h-[412px] overflow-auto divide-y divide-indigo-100">
                 <div class="text-center text-slate-400 py-10">
-                  <i class="ri-arrow-left-double-line text-3xl block mb-2"></i>从左侧选择字段加入此处
+                  <i class="ri-arrow-left-double-line text-3xl block mb-2"></i>
+                  <span data-i18n="step5.selPlaceholder">从左侧选择字段加入此处</span>
                 </div>
               </div>
             </div>
           </div>
 
-          <!-- 回填结果 -->
           <div id="fillResultWrap" class="hidden space-y-3">
             <div class="flex items-center justify-between flex-wrap gap-2">
-              <h3 class="text-sm font-bold text-slate-700 flex items-center gap-2"><i class="ri-file-check-line text-emerald-500"></i> 回填结果</h3>
+              <h3 class="text-sm font-bold text-slate-700 flex items-center gap-2"><i class="ri-file-check-line text-emerald-500"></i> <span data-i18n="step5.fillResult">回填结果</span></h3>
               <div class="flex items-center gap-2">
                 <button id="btnCopyFill" class="text-xs px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 transition flex items-center gap-1">
-                  <i class="ri-clipboard-line"></i> 复制结果 JSON
+                  <i class="ri-clipboard-line"></i> <span data-i18n="step5.copyResult">复制结果 JSON</span>
                 </button>
                 <button id="btnDownloadFill" class="text-xs px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white transition flex items-center gap-1">
-                  <i class="ri-download-2-line"></i> 下载 JSON
+                  <i class="ri-download-2-line"></i> <span data-i18n="step5.downloadResult">下载 JSON</span>
                 </button>
               </div>
             </div>
             <div id="fillLog" class="text-xs space-y-1"></div>
 
-            <!-- 对比 Tab 切换 -->
             <div class="flex items-center gap-1 border-b border-slate-200">
               <button data-filltab="left" class="fill-tab px-4 py-2 text-sm font-medium border-b-2 transition flex items-center gap-1.5 border-indigo-500 text-indigo-600">
-                <i class="ri-git-commit-line"></i> 与旧文件对比
+                <i class="ri-git-commit-line"></i> <span data-i18n="step5.tabLeft">与旧文件对比</span>
               </button>
               <button data-filltab="right" class="fill-tab px-4 py-2 text-sm font-medium border-b-2 transition flex items-center gap-1.5 border-transparent text-slate-500 hover:text-slate-700">
-                <i class="ri-git-merge-line"></i> 与新文件对比
+                <i class="ri-git-merge-line"></i> <span data-i18n="step5.tabRight">与新文件对比</span>
               </button>
               <button data-filltab="json" class="fill-tab px-4 py-2 text-sm font-medium border-b-2 transition flex items-center gap-1.5 border-transparent text-slate-500 hover:text-slate-700">
-                <i class="ri-file-code-line"></i> 结果 JSON
+                <i class="ri-file-code-line"></i> <span data-i18n="step5.tabJson">结果 JSON</span>
               </button>
             </div>
 
-            <!-- Tab 内容：与旧文件对比 -->
             <div id="fillTabLeft" class="fill-tab-panel">
-              <div class="text-xs text-slate-500 mb-2 flex items-center gap-1"><i class="ri-information-line"></i> 回填结果（B'）相对<b class="text-emerald-600 mx-1">旧文件 A</b>的差异</div>
+              <div class="text-xs text-slate-500 mb-2 flex items-center gap-1"><i class="ri-information-line"></i> <span data-i18n="step5.tabLeftDesc">回填结果（B'）相对<b class="text-emerald-600 mx-1">旧文件 A</b>的差异</span></div>
               <div id="fillLegendLeft" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-3"></div>
               <div id="fillDiffLeft" class="border border-slate-200 rounded-lg p-3 overflow-auto max-h-[460px] bg-white text-sm"></div>
             </div>
 
-            <!-- Tab 内容：与新文件对比 -->
             <div id="fillTabRight" class="fill-tab-panel hidden">
-              <div class="text-xs text-slate-500 mb-2 flex items-center gap-1"><i class="ri-information-line"></i> 回填结果（B'）相对<b class="text-rose-600 mx-1">新文件 B</b>的差异</div>
+              <div class="text-xs text-slate-500 mb-2 flex items-center gap-1"><i class="ri-information-line"></i> <span data-i18n="step5.tabRightDesc">回填结果（B'）相对<b class="text-rose-600 mx-1">新文件 B</b>的差异</span></div>
               <div id="fillLegendRight" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-3"></div>
               <div id="fillDiffRight" class="border border-slate-200 rounded-lg p-3 overflow-auto max-h-[460px] bg-white text-sm"></div>
             </div>
 
-            <!-- Tab 内容：结果 JSON 文本 -->
             <div id="fillTabJson" class="fill-tab-panel hidden">
               <pre id="fillOutput" class="bg-slate-900 text-slate-100 rounded-lg p-4 text-xs overflow-auto max-h-[460px] whitespace-pre-wrap"></pre>
             </div>
@@ -443,10 +417,10 @@
 
         <div class="px-6 py-4 border-t border-slate-200 flex justify-between">
           <button data-goto="4" class="step-prev px-5 py-2.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 transition flex items-center gap-2">
-            <i class="ri-arrow-left-line"></i> 上一步
+            <i class="ri-arrow-left-line"></i> <span data-i18n="step5.btn.prev">上一步</span>
           </button>
           <button data-goto="2" class="step-prev px-5 py-2.5 rounded-lg border border-indigo-300 text-indigo-600 hover:bg-indigo-50 transition flex items-center gap-2">
-            <i class="ri-edit-line"></i> 修改输入
+            <i class="ri-edit-line"></i> <span data-i18n="step5.btn.edit">修改输入</span>
           </button>
         </div>
       </div>
@@ -466,18 +440,17 @@
         <i class="ri-close-line text-xl"></i>
       </button>
     </div>
-    <div class="px-5 py-2.5 bg-slate-50 border-b border-slate-200 text-xs text-slate-500 shrink-0">
-      共 <span id="statDrawerTotal" class="font-semibold text-slate-700">0</span> 处差异，
-      已按所在路径的差异数 <b>倒序</b>排列（全路径展示）
+    <div class="px-5 py-2.5 bg-slate-50 border-b border-slate-200 text-xs text-slate-500 shrink-0" id="statDrawerTotalDiv">
+      共 <span id="statDrawerTotal" class="font-semibold text-slate-700">0</span> 处差异
     </div>
     <div id="statDrawerList" class="flex-1 overflow-auto p-4 space-y-2"></div>
     <div id="statDrawerPager" class="flex items-center justify-between px-5 py-3 border-t border-slate-200 bg-white shrink-0 text-sm">
       <button id="statPrevPage" class="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 transition">
-        <i class="ri-arrow-left-s-line"></i> 上一页
+        <i class="ri-arrow-left-s-line"></i> <span data-i18n="drawer.prev">上一页</span>
       </button>
-      <span class="text-slate-500">第 <span id="statCurPage">1</span> / <span id="statTotalPage">1</span> 页</span>
+      <span class="text-slate-500"><span data-i18n="drawer.page" id="drawerPageText" data-i18n-vars='{"cur":"1","total":"1"}'>第 1 / 1 页</span></span>
       <button id="statNextPage" class="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 transition">
-        下一页 <i class="ri-arrow-right-s-line"></i>
+        <span data-i18n="drawer.next">下一页</span> <i class="ri-arrow-right-s-line"></i>
       </button>
     </div>
   </aside>
@@ -487,30 +460,31 @@
     <div id="fieldStatModal" class="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[80vh] scale-95 transition-transform duration-200">
       <div class="flex items-center justify-between px-5 py-4 border-b border-slate-200 shrink-0">
         <h3 class="text-base font-bold text-slate-700 flex items-center gap-2">
-          <i class="ri-bar-chart-grouped-line text-emerald-500"></i> 字段值统计
+          <i class="ri-bar-chart-grouped-line text-emerald-500"></i>
+          <span data-i18n="fieldStat.title">字段值统计</span>
         </h3>
         <button id="fieldStatClose" class="w-8 h-8 rounded-lg hover:bg-slate-100 flex items-center justify-center transition text-slate-500">
           <i class="ri-close-line text-xl"></i>
         </button>
       </div>
-      <div class="px-5 py-2.5 bg-slate-50 border-b border-slate-200 text-xs text-slate-500 shrink-0">
-        字段 <span id="fieldStatPath" class="font-mono text-indigo-600 break-all"></span>，
-        共匹配 <span id="fieldStatTotal" class="font-semibold text-slate-700">0</span> 处，
-        <span id="fieldStatUnique" class="font-semibold text-slate-700">0</span> 种不同取值（按数量倒序）
+      <div class="px-5 py-2.5 bg-slate-50 border-b border-slate-200 text-xs text-slate-500 shrink-0" id="fieldStatInfoDiv">
+        字段 <span id="fieldStatPath" class="font-mono text-indigo-600 break-all"></span>
       </div>
       <div id="fieldStatList" class="flex-1 overflow-auto p-4 space-y-1.5"></div>
       <div id="fieldStatPager" class="flex items-center justify-between px-5 py-3 border-t border-slate-200 bg-white shrink-0 text-sm">
         <button id="fieldStatPrev" class="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 transition">
-          <i class="ri-arrow-left-s-line"></i> 上一页
+          <i class="ri-arrow-left-s-line"></i> <span data-i18n="fieldStat.prev">上一页</span>
         </button>
-        <span class="text-slate-500">第 <span id="fieldStatCurPage">1</span> / <span id="fieldStatTotalPage">1</span> 页</span>
+        <span class="text-slate-500"><span data-i18n="fieldStat.page" id="fieldStatPageText" data-i18n-vars='{"cur":"1","total":"1"}'>第 1 / 1 页</span></span>
         <button id="fieldStatNext" class="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed flex items-center gap-1 transition">
-          下一页 <i class="ri-arrow-right-s-line"></i>
+          <span data-i18n="fieldStat.next">下一页</span> <i class="ri-arrow-right-s-line"></i>
         </button>
       </div>
     </div>
   </div>
-    <p>由 <a href="http://jsondiff.demoworld.tech/" style="color: #8A2BE2;" target="_blank">tiger</a> 通过自然语言生成</p>
+
+  <footer class="text-center py-4 text-xs text-slate-400 border-t border-slate-200 bg-white">
+    <p data-i18n="footer.text">由 <a href="https://github.com/francisoliverlee/json-diff" style="color: #8A2BE2;" target="_blank">tiger</a> 通过自然语言生成</p>
   </footer>
 
   <script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.min.js"></script>
@@ -523,5 +497,15 @@
   <script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/search/searchcursor.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/search/search.min.js"></script>
   <script type="module" src="./main.js"></script>
+  <script>
+    var _hmt = _hmt || [];
+    (function() {
+      var hm = document.createElement("script");
+      hm.src = "https://hm.baidu.com/hm.js?1c7904d693586ef3e3af200e8736cf7e";
+      var s = document.getElementsByTagName("script")[0]; 
+      s.parentNode.insertBefore(hm, s);
+    })();
+  </script>
+
 </body>
 </html>

@@ -1,13 +1,14 @@
 // render.js —— 差异结果可视化渲染模块
 import { kindOf } from './diff.js';
+import { t } from './i18n.js';
 
 // 状态对应的样式配置
 const STATUS_STYLE = {
-  same:    { bg: 'bg-slate-50',    badge: 'bg-slate-200 text-slate-600',    icon: 'ri-equal-line',                  label: '相同' },
-  added:   { bg: 'bg-rose-50',     badge: 'bg-rose-200 text-rose-700',      icon: 'ri-add-circle-line',             label: '仅B有' },
-  removed: { bg: 'bg-emerald-50',  badge: 'bg-emerald-200 text-emerald-700', icon: 'ri-indeterminate-circle-line',   label: '仅A有' },
-  changed: { bg: 'bg-amber-50',    badge: 'bg-amber-200 text-amber-700',    icon: 'ri-error-warning-line',          label: '值不同' },
-  parent:  { bg: '',               badge: 'bg-indigo-100 text-indigo-700',  icon: 'ri-folder-line',                 label: '' },
+  same:    { bg: 'bg-slate-50',    badge: 'bg-slate-200 text-slate-600',    icon: 'ri-equal-line',                  labelKey: 'render.status.same' },
+  added:   { bg: 'bg-rose-50',     badge: 'bg-rose-200 text-rose-700',      icon: 'ri-add-circle-line',             labelKey: 'render.status.added' },
+  removed: { bg: 'bg-emerald-50',  badge: 'bg-emerald-200 text-emerald-700', icon: 'ri-indeterminate-circle-line',   labelKey: 'render.status.removed' },
+  changed: { bg: 'bg-amber-50',    badge: 'bg-amber-200 text-amber-700',    icon: 'ri-error-warning-line',          labelKey: 'render.status.changed' },
+  parent:  { bg: '',               badge: 'bg-indigo-100 text-indigo-700',  icon: 'ri-folder-line',                 labelKey: '' },
 };
 
 // HTML 转义
@@ -20,7 +21,7 @@ function esc(s) {
 // 将简单值渲染为带类型色彩的字符串
 function fmtValue(v) {
   const k = kindOf(v);
-  if (v === undefined) return '<span class="text-slate-300 italic">（缺失）</span>';
+  if (v === undefined) return `<span class="text-slate-300 italic">${t('common.missing')}</span>`;
   if (k === 'null') return '<span class="text-slate-400">null</span>';
   if (k === 'string') return `<span class="text-emerald-600">"${esc(v)}"</span>`;
   if (k === 'number') return `<span class="text-blue-600">${esc(v)}</span>`;
@@ -33,7 +34,6 @@ function fmtValue(v) {
 // key 展示：数组下标用 [i]，对象用 key；主键模式下数组项 key 形如 "pk=value"
 function fmtKey(node, isArrayItem) {
   if (isArrayItem) {
-    // 主键模式：key 是字符串 "字段=值"（复合主键为 "字段1=值1, 字段2=值2"），高亮每段主键
     if (typeof node.key === 'string' && node.key.includes('=')) {
       const segs = node.key.split(', ').map(seg => {
         const eq = seg.indexOf('=');
@@ -49,10 +49,6 @@ function fmtKey(node, isArrayItem) {
   return `<span class="text-slate-700 font-semibold">${esc(node.key)}</span>`;
 }
 
-/**
- * 判断在"隐藏相同"模式下，该节点是否应被隐藏
- * 仅当整棵子树都相同时才隐藏
- */
 function isAllSame(node) {
   if (node.status === 'same') {
     if (!node.children || node.children.length === 0) return true;
@@ -61,11 +57,6 @@ function isAllSame(node) {
   return false;
 }
 
-/**
- * statusFilter 过滤：判断某棵子树在当前状态过滤下是否「完全没有可展示内容」。
- * filter 为一个集合（Set），包含当前勾选要展示的状态：'added' | 'removed' | 'changed' | 'same'。
- * @returns true 表示该节点在当前过滤下应被隐藏（无任何可展示内容）
- */
 function isFilteredOut(node, filter) {
   if (!filter) return false;
 
@@ -109,8 +100,8 @@ function cellStatusClass(status, side) {
 
 function badgeHtml(status) {
   const style = STATUS_STYLE[status] || STATUS_STYLE.parent;
-  if (!style.label) return '';
-  return `<span class="split-diff-badge ${style.badge}"><i class="${style.icon}"></i> ${style.label}</span>`;
+  if (!style.labelKey) return '';
+  return `<span class="split-diff-badge ${style.badge}"><i class="${style.icon}"></i> ${t(style.labelKey)}</span>`;
 }
 
 function metaHtml(node) {
@@ -119,39 +110,39 @@ function metaHtml(node) {
 
   if (node.type === 'object') {
     const cntCls = meta.keyCountEqual ? 'text-slate-400' : 'text-amber-600 font-semibold';
-    out += `<span class="split-diff-meta ${cntCls}">key数量 A:${meta.leftKeyCount} / B:${meta.rightKeyCount}${meta.keyCountEqual ? '' : ' ⚠'}</span>`;
+    out += `<span class="split-diff-meta ${cntCls}">${t('render.keyCount', { left: meta.leftKeyCount, right: meta.rightKeyCount })}${meta.keyCountEqual ? '' : ' ⚠'}</span>`;
     if (meta.keyCountEqual && meta.sameKeys === false) {
-      out += `<span class="split-diff-meta text-amber-600">key不一致 ⚠</span>`;
+      out += `<span class="split-diff-meta text-amber-600">${t('render.keyMismatch')}</span>`;
     }
     if (meta.objectMatchKey) {
       const keyFields = Array.isArray(meta.objectMatchKey) ? meta.objectMatchKey : [meta.objectMatchKey];
       const keyLabel = keyFields.map(f => esc(f)).join(' + ');
-      const keyTitle = keyFields.length > 1 ? '复合主键' : '主键';
-      out += `<span class="split-diff-meta bg-violet-100 text-violet-700 px-1.5 rounded">对象按${keyTitle}「${keyLabel}」校验</span>`;
+      const keyTitle = keyFields.length > 1 ? t('render.compositeKey') : t('render.primaryKey');
+      out += `<span class="split-diff-meta bg-violet-100 text-violet-700 px-1.5 rounded">${t('render.objectCheckBy', { keyTitle, keyLabel })}</span>`;
       if (meta.objectKeyChanged) {
-        out += `<span class="split-diff-meta bg-amber-200 text-amber-700 px-1.5 rounded"><i class="ri-error-warning-line"></i> 主键值不同</span>`;
+        out += `<span class="split-diff-meta bg-amber-200 text-amber-700 px-1.5 rounded"><i class="ri-error-warning-line"></i> ${t('render.primaryKeyChanged')}</span>`;
       }
     }
   } else if (node.type === 'array') {
     const cntCls = meta.lengthEqual ? 'text-slate-400' : 'text-amber-600 font-semibold';
-    out += `<span class="split-diff-meta ${cntCls}">长度 A:${meta.leftLength} / B:${meta.rightLength}${meta.lengthEqual ? '' : ' ⚠'}</span>`;
+    out += `<span class="split-diff-meta ${cntCls}">${t('render.length', { left: meta.leftLength, right: meta.rightLength })}${meta.lengthEqual ? '' : ' ⚠'}</span>`;
     if (meta.matchKey) {
       const keyFields = Array.isArray(meta.matchKey) ? meta.matchKey : [meta.matchKey];
       const keyLabel = keyFields.map(f => esc(f)).join(' + ');
-      const keyTitle = keyFields.length > 1 ? '复合主键' : '主键';
-      out += `<span class="split-diff-meta bg-indigo-100 text-indigo-700 px-1.5 rounded">按${keyTitle}「${keyLabel}」对比</span>`;
+      const keyTitle = keyFields.length > 1 ? t('render.compositeKey') : t('render.primaryKey');
+      out += `<span class="split-diff-meta bg-indigo-100 text-indigo-700 px-1.5 rounded">${t('render.compareBy', { keyTitle, keyLabel })}</span>`;
       if (meta.leftUniqueCount !== undefined && meta.rightUniqueCount !== undefined) {
         const uCls = meta.uniqueCountEqual ? 'text-slate-400' : 'text-amber-600 font-semibold';
-        out += `<span class="split-diff-meta ${uCls}" title="按主键去重后的元素数量">去重长度 A:${meta.leftUniqueCount} / B:${meta.rightUniqueCount}${meta.uniqueCountEqual ? '' : ' ⚠'}</span>`;
+        out += `<span class="split-diff-meta ${uCls}" title="${t('render.dedupLength', { left: meta.leftUniqueCount, right: meta.rightUniqueCount })}">${t('render.dedupLength', { left: meta.leftUniqueCount, right: meta.rightUniqueCount })}${meta.uniqueCountEqual ? '' : ' ⚠'}</span>`;
       }
     }
     if (meta.lengthChanged) {
-      out += `<span class="split-diff-meta bg-amber-200 text-amber-700 px-1.5 rounded"><i class="ri-error-warning-line"></i> 值不同(个数)</span>`;
+      out += `<span class="split-diff-meta bg-amber-200 text-amber-700 px-1.5 rounded"><i class="ri-error-warning-line"></i> ${t('render.arrayLengthChanged')}</span>`;
     }
   }
 
   if (node.meta && node.meta.changedCount) {
-    out += `<span class="split-diff-meta bg-amber-100 text-amber-700 px-1.5 rounded">${node.meta.changedCount} 处差异</span>`;
+    out += `<span class="split-diff-meta bg-amber-100 text-amber-700 px-1.5 rounded">${t('render.changedCount', { n: node.meta.changedCount })}</span>`;
   }
   return out;
 }
@@ -178,14 +169,14 @@ function renderCellContent(row, side) {
     ? `<i class="${collapsed ? 'ri-arrow-right-s-line' : 'ri-arrow-down-s-line'} split-diff-toggle toggle-icon" data-toggle="${row.id}"></i>`
     : '<span class="split-diff-toggle-placeholder"></span>';
   const key = node.key === 'root'
-    ? '<span class="text-indigo-600 font-bold">根节点</span>'
+    ? `<span class="text-indigo-600 font-bold">${t('render.rootNode')}</span>`
     : fmtKey(node, isArrayItem);
 
   if (!sideHasValue && (node.status === 'added' || node.status === 'removed')) {
     return `
       <div class="split-diff-line" style="padding-left:${row.pad}px">
         ${toggle}
-        ${emptyCell(node.status === 'added' ? '左侧缺失' : '右侧缺失')}
+        ${emptyCell(node.status === 'added' ? t('render.missingLeft') : t('render.missingRight'))}
       </div>`;
   }
 
@@ -239,7 +230,7 @@ function renderCellContent(row, side) {
           <span>${key}</span>
           <span class="text-slate-400">:</span>
           <span>${fmtValue(side === 'left' ? node.left : node.right)}</span>
-          ${node.meta && node.meta.reason === 'type-mismatch' && side === 'right' ? `<span class="text-xs text-amber-600 ml-1">类型不同(${node.meta.leftType} vs ${node.meta.rightType})</span>` : ''}
+          ${node.meta && node.meta.reason === 'type-mismatch' && side === 'right' ? `<span class="text-xs text-amber-600 ml-1">${t('render.typeMismatch', { leftType: node.meta.leftType, rightType: node.meta.rightType })}</span>` : ''}
         </div>
       </div>
     </div>`;
@@ -307,9 +298,6 @@ function applyInitialVisibility(rows) {
   });
 }
 
-/**
- * 渲染整棵差异树到容器
- */
 export function renderDiff(container, rootNode, opts = {}) {
   __rowSeq = 0;
   const rows = buildRows(rootNode, opts, false, 0, '');
@@ -317,9 +305,9 @@ export function renderDiff(container, rootNode, opts = {}) {
   if (rows.length <= 1) {
     const filtered = opts.statusFilter && opts.statusFilter.size < 4;
     if (filtered) {
-      container.innerHTML = `<div class="text-center text-slate-400 py-12"><i class="ri-filter-off-line text-4xl block mb-2"></i>当前筛选条件下没有可展示的内容<br/><span class="text-xs">请在上方勾选要展示的差异类型</span></div>`;
+      container.innerHTML = `<div class="text-center text-slate-400 py-12"><i class="ri-filter-off-line text-4xl block mb-2"></i>${t('step4.filteredEmpty')}</div>`;
     } else {
-      container.innerHTML = `<div class="text-center text-emerald-500 py-12"><i class="ri-checkbox-circle-line text-4xl block mb-2"></i>两侧 JSON 完全一致（无差异）</div>`;
+      container.innerHTML = `<div class="text-center text-emerald-500 py-12"><i class="ri-checkbox-circle-line text-4xl block mb-2"></i>${t('step4.identical')}</div>`;
     }
     return;
   }
@@ -328,8 +316,8 @@ export function renderDiff(container, rootNode, opts = {}) {
   container.innerHTML = `
     <div class="split-diff" data-split-diff="1">
       <div class="split-diff-header">
-        <div class="split-diff-header-cell split-diff-left-title"><i class="ri-file-list-2-line"></i> A / 旧 JSON</div>
-        <div class="split-diff-header-cell split-diff-right-title"><i class="ri-file-list-3-line"></i> B / 新 JSON</div>
+        <div class="split-diff-header-cell split-diff-left-title"><i class="ri-file-list-2-line"></i> ${t('step4.splitA')}</div>
+        <div class="split-diff-header-cell split-diff-right-title"><i class="ri-file-list-3-line"></i> ${t('step4.splitB')}</div>
       </div>
       <div class="split-diff-body">
         ${rows.map(rowHtml).join('')}
@@ -379,9 +367,6 @@ function refreshRowVisibility(container) {
   });
 }
 
-/**
- * 统计差异概要
- */
 export function summarize(rootNode) {
   let added = 0, removed = 0, changed = 0, same = 0;
   function walk(n) {
@@ -398,13 +383,6 @@ export function summarize(rootNode) {
   return { added, removed, changed, same };
 }
 
-/**
- * 收集差异 key 的全路径列表，按状态分类。
- * 全路径规则：对象 key 用 ".key"，数组下标用 "[i]"，主键模式用 "[pk=value]"。
- * 每个最终 value 差异（含整块 added/removed 的对象/数组）算 1 处。
- * @returns { added:[], removed:[], changed:[] }
- *   每项为 { path, depth, group, status, left, right }
- */
 export function collectDiffPaths(rootNode) {
   const result = { added: [], removed: [], changed: [] };
 
@@ -418,8 +396,8 @@ export function collectDiffPaths(rootNode) {
   }
 
   function groupOf(path) {
-    const m = path.match(/^(.*)(\.[^.\[\]]+|\[[^\]]*\])$/);
-    return m && m[1] ? m[1] : '(根)';
+    const m = path.match(/^(.*)(\.[^.[\]]+|\[[^\]]*\])$/);
+    return m && m[1] ? m[1] : '(root)';
   }
 
   function walk(node, path, parentIsArray) {
@@ -428,10 +406,10 @@ export function collectDiffPaths(rootNode) {
       && (node.status === 'added' || node.status === 'removed');
 
     if (isLeafValue || isWholeContainer) {
-      const fullPath = path || '(根)';
+      const fullPath = path || '(root)';
       const item = {
         path: fullPath,
-        depth: (fullPath.match(/[.\[]/g) || []).length,
+        depth: (fullPath.match(/[.[]/g) || []).length,
         group: groupOf(fullPath),
         status: node.status,
         left: node.left,
@@ -444,14 +422,14 @@ export function collectDiffPaths(rootNode) {
     }
 
     if (node.type === 'array' && node.meta && node.meta.lengthChanged) {
-      const fullPath = path || '(根)';
+      const fullPath = path || '(root)';
       result.changed.push({
         path: fullPath,
-        depth: (fullPath.match(/[.\[]/g) || []).length,
+        depth: (fullPath.match(/[.[]/g) || []).length,
         group: groupOf(fullPath),
         status: 'changed',
-        left: `数组长度 ${node.meta.leftLength}`,
-        right: `数组长度 ${node.meta.rightLength}`,
+        left: t('fieldfill.arrayLength', { len: node.meta.leftLength }),
+        right: t('fieldfill.arrayLength', { len: node.meta.rightLength }),
         reason: 'array-length',
       });
     }
@@ -470,23 +448,14 @@ export function collectDiffPaths(rootNode) {
   return result;
 }
 
-/**
- * 提取一条全路径的「最终 key」名（去掉前缀）。
- */
 export function finalKeyOf(path) {
-  if (!path || path === '(根)') return '(根)';
-  const stripped = path.replace(/(\[[^\]]*\])+$/,'');
-  if (stripped === '') return '(根数组项)';
+  if (!path || path === '(root)') return '(root)';
+  const stripped = path.replace(/(\[[^\]]*\])+$/, '');
+  if (stripped === '') return '(root array item)';
   const seg = stripped.split('.');
   return seg[seg.length - 1] || stripped;
 }
 
-/**
- * 将 collectDiffPaths 的某一类别列表，按 key 维度聚合计数。
- * @param {Array} list  diffPaths[type]
- * @param {boolean} stripPrefix true=按最终 key 聚合；false=按完整路径聚合
- * @returns Array<{ key, count }>  按 count 倒序、key 升序
- */
 export function aggregateByKey(list, stripPrefix = true) {
   const map = new Map();
   (list || []).forEach(it => {

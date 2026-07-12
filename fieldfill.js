@@ -9,6 +9,8 @@
 //   - 对象 key 用 ".key"（根层无前缀点）
 //   - 对象数组下层统一用 "path[]" 占位（不区分具体下标），以便复用 arrayKeyMap 主键映射
 
+import { t } from './i18n.js';
+
 function isPlainObj(v) {
   return v !== null && typeof v === 'object' && !Array.isArray(v);
 }
@@ -40,7 +42,7 @@ function compositeKeyOf(item, fields) {
 
 // 值的简短预览
 export function previewValue(v) {
-  if (v === undefined) return '（缺失）';
+  if (v === undefined) return t('common.missing');
   if (v === null) return 'null';
   if (Array.isArray(v)) {
     const s = JSON.stringify(v);
@@ -283,7 +285,7 @@ export function collectFieldValueStats(left, right, path, arrayKeyMap = {}) {
 
 // 值的完整文本（弹窗展示用，不截断；对象/数组用紧凑 JSON）
 function fullValueText(v) {
-  if (v === undefined) return '（缺失）';
+  if (v === undefined) return t('common.missing');
   if (v === null) return 'null';
   if (typeof v === 'string') return v;
   if (typeof v === 'object') {
